@@ -122,11 +122,9 @@
                     "/>
                 </label>
                 
-                <button id="loadExampleBtn" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
+                <button id="loadExampleBtn" style="display: none;" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
                     Load Example
                 </button>
-                
-                <div id="fileInfo" class="text-sm text-gray-400 hidden md:block ml-auto truncate max-w-[200px]"></div>
             </div>
 
             <!-- Full Width Video Timeline (Hidden until video loaded) -->
@@ -415,7 +413,7 @@ function formatTime(seconds) {
  * --- DOM ELEMENTS ---
  */
 const fileInput = document.getElementById('fileInput');
-const fileInfo = document.getElementById('fileInfo');
+// fileInfo removed from HTML, variable removed
 const downloadBtn = document.getElementById('downloadBtn');
 const exportFramesBtn = document.getElementById('exportFramesBtn');
 const loadExampleBtn = document.getElementById('loadExampleBtn');
@@ -471,8 +469,19 @@ const rollValue = document.getElementById('rollValue');
 /**
  * --- INITIALIZATION & EVENTS ---
  */
+// Check for example file existence
+fetch('example/example.jpg', { method: 'HEAD' })
+    .then(res => {
+        if (res.ok) {
+            loadExampleBtn.style.display = 'inline-block';
+        }
+    })
+    .catch(() => { /* Ignore error, button stays hidden */ });
+
 fileInput.addEventListener('change', (e) => {
-    handleFileSelect(e.target.files[0]);
+    if (e.target.files && e.target.files[0]) {
+        handleFileSelect(e.target.files[0]);
+    }
 });
 
 // Drag and Drop
@@ -550,7 +559,7 @@ toggleDetectConfig.addEventListener('click', (e) => {
     detectConfigPanel.classList.toggle('hidden');
 });
 window.addEventListener('click', (e) => {
-    if (!detectConfigPanel.contains(e.target) && e.target !== toggleDetectConfig) {
+    if (detectConfigPanel && !detectConfigPanel.contains(e.target) && e.target !== toggleDetectConfig) {
         detectConfigPanel.classList.add('hidden');
     }
 });
@@ -616,8 +625,6 @@ downloadBtn.addEventListener('click', () => {
 
 function handleFileSelect(file) {
     if (!file) return;
-    
-    if(fileInfo) fileInfo.innerText = file.name;
 
     const isVideoFile = file.type.startsWith('video/');
 
@@ -927,6 +934,7 @@ async function startFrameExport() {
     const interval = 1.0 / fps;
     const duration = sourceMedia.duration;
     
+    // Format Selection
     const format = formatSelect.value; 
     const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
     const ext = format === 'jpg' ? 'jpg' : 'png';
@@ -1218,7 +1226,7 @@ function drawUI() {
     ctxSource.drawImage(sourceMedia, 0, 0);
     
     const lw = 3 / viewScale;
-    const hs = 8 / viewScale;
+    const hs = 12 / viewScale;
     
     ctxSource.beginPath();
     ctxSource.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
