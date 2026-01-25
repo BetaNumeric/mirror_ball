@@ -31,7 +31,7 @@
             background-size: 20px 20px;
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
         }
-        /* Crucial: height: auto ensures aspect ratio is preserved when width is constrained */
+        /* height: auto ensures aspect ratio is preserved when width is constrained */
         canvas {
             display: block;
             width: 100% !important;
@@ -77,7 +77,6 @@
         }
         .toast.error { border-left-color: #ef4444; }
         .toast.success { border-left-color: #22c55e; }
-        .toast.info { border-left-color: #3b82f6; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
@@ -257,7 +256,7 @@
             <ul class="list-disc pl-5 space-y-1">
                 <li><strong>Frame Export:</strong> This saves every frame as a high-quality image. JPG is smaller, PNG is higher quality.</li>
                 <li><strong>FPS:</strong> Set this to match your source video (usually 24, 25, 30, or 60).</li>
-                <li><strong>Resolution:</strong> Higher resolutions consume more memory. If export fails, try reducing the Width.</li>
+                <li><strong>Resolution:</strong> Higher resolutions consume more memory. The tool now automatically caps width to your GPU limit.</li>
             </ul>
         </div>
 
@@ -276,6 +275,10 @@
 // Three.js State
 let scene, camera, renderer, sphereMesh; // 3D Preview
 let procScene, procCamera, procRenderer, procMaterial, procTexture, procCanvas; // WebGL Processor
+// Reusable rotation objects to prevent GC churn
+const _euler = new THREE.Euler();
+const _mat4 = new THREE.Matrix4();
+const _mat3 = new THREE.Matrix3();
 
 // Interaction State
 let isUserInteracting = false;
@@ -288,8 +291,8 @@ let sourceMedia = null;
 let isVideo = false;
 let isVideoPlaying = false;
 let isExportingFrames = false;
-let maxTextureSize = 4096; // Will be updated by GPU capability
-let needsRender = false; // DIRTY FLAG for static rendering optimization
+let maxTextureSize = 4096; // Updated by GPU
+let needsRender = false; 
 
 // Align Circle State
 let ball = { x: 0, y: 0, r: 100 };
@@ -410,7 +413,7 @@ videoSeek.addEventListener('input', () => {
     if (isVideo && sourceMedia) {
         const time = sourceMedia.duration * (videoSeek.value / 100);
         sourceMedia.currentTime = time;
-        needsRender = true; // Force render on seek
+        needsRender = true;
     }
 });
 
@@ -420,7 +423,7 @@ exportFramesBtn.addEventListener('click', startFrameExport);
 const updateParams = () => {
     updateProcessorParams();
     updateUIValues();
-    needsRender = true; // Flag for next frame
+    needsRender = true;
 };
 
 const updateUIValues = () => {
@@ -515,7 +518,6 @@ function handleFileSelect(e) {
         reader.onload = function(event) {
             sourceMedia = new Image();
             sourceMedia.onload = function() {
-                console.log("Image loaded", sourceMedia.width, sourceMedia.height);
                 initWorkspace();
             }
             sourceMedia.src = event.target.result;
@@ -542,7 +544,7 @@ function initWorkspace() {
     
     // Auto-calculate optimal width but clamp initially for safety
     let optimalW = Math.floor(ball.r * 2 * Math.PI);
-    if(optimalW > 4096) optimalW = 4096; // Safe default
+    if(optimalW > 4096) optimalW = 4096;
     widthInput.value = optimalW;
 
     // Texture Setup
@@ -550,9 +552,9 @@ function initWorkspace() {
     procTexture = new THREE.Texture(sourceMedia);
     procTexture.minFilter = THREE.LinearFilter;
     procTexture.magFilter = THREE.LinearFilter;
-    procTexture.generateMipmaps = false;
+    procTexture.generateMipmaps = false; // Disable mipmaps for NPOT textures
     
-    procTexture.needsUpdate = true; // Essential for first load
+    procTexture.needsUpdate = true;
     
     procMaterial.uniforms.tDiffuse.value = procTexture;
     procMaterial.uniforms.uResolution.value.set(w, h);
@@ -567,6 +569,21 @@ function initWorkspace() {
     resInfo.innerText = "Ready.";
     downloadBtn.style.display = isVideo ? 'none' : 'block';
     
+    // Force Image Update loop for static images
+    if (!isVideo) {
+        const forceUpdate = (count) => {
+            if(count > 0) {
+                if(procTexture) procTexture.needsUpdate = true;
+                renderProcessor();
+                if (sphereMesh && sphereMesh.material.map) {
+                    sphereMesh.material.map.needsUpdate = true;
+                }
+                requestAnimationFrame(() => forceUpdate(count - 1));
+            }
+        };
+        forceUpdate(5); 
+    }
+    
     requestAnimationFrame(animationLoop);
 }
 
@@ -578,7 +595,7 @@ function animationLoop() {
 
     let shouldRender = needsRender;
 
-    // UI Updates / Video Frame Updates
+    // UI Updates
     if (isVideo && !isExportingFrames) {
         if (!sourceVideoHidden.paused) {
             if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
@@ -591,22 +608,19 @@ function animationLoop() {
         }
     }
 
-    // Only render loop if NOT exporting
+    // Only render if needed
     if (!isExportingFrames && shouldRender) {
         if (!isVideo) {
-            // Force texture update once to catch up with image decode
-            // But don't do it every frame for performance
             if(needsRender) procTexture.needsUpdate = true;
         }
 
         renderProcessor();
         
-        // Force update map for 3D view
         if (sphereMesh && sphereMesh.material.map) {
             sphereMesh.material.map.needsUpdate = true;
         }
         
-        needsRender = false; // Reset dirty flag
+        needsRender = false;
     }
 }
 
@@ -650,24 +664,25 @@ async function startFrameExport() {
     const interval = 1.0 / fps;
     const duration = sourceMedia.duration;
     
-    // Format Selection
     const format = formatSelect.value; 
     const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
     const ext = format === 'jpg' ? 'jpg' : 'png';
     
     const width = parseInt(widthInput.value) || 2048;
     
+    // Frames per zip based on estimated size
     let framesPerZip;
     if (format === 'jpg') {
-        if (width > 3000) framesPerZip = 500; 
-        else if (width > 1500) framesPerZip = 2000; 
-        else framesPerZip = 3000;
-    } else {
         if (width > 3000) framesPerZip = 100; 
-        else if (width > 1500) framesPerZip = 300; 
-        else framesPerZip = 500;
+        else if (width > 1500) framesPerZip = 500; 
+        else framesPerZip = 1000;
+    } else {
+        if (width > 3000) framesPerZip = 30; 
+        else if (width > 1500) framesPerZip = 100; 
+        else framesPerZip = 300;
     }
     
+    // UI Update
     exportFramesBtn.disabled = true;
     exportFramesBtn.innerText = "Stop Export";
     exportFramesBtn.onclick = () => { isExportingFrames = false; }; 
@@ -685,6 +700,7 @@ async function startFrameExport() {
     let framesInCurrentZip = 0;
 
     procTexture.image = sourceVideoHidden; 
+    procTexture.needsUpdate = true;
     
     const seekTo = (time) => {
         return new Promise((resolve) => {
@@ -710,6 +726,7 @@ async function startFrameExport() {
             framesFolder.file(filename, blob);
             framesInCurrentZip++;
             
+            // Check for split
             if (framesInCurrentZip >= framesPerZip) {
                 exportStatusText.innerText = `Saving Part ${zipPart}...`;
                 const content = await zip.generateAsync({type:"blob"});
@@ -730,6 +747,7 @@ async function startFrameExport() {
             await new Promise(r => setTimeout(r, 0));
         }
         
+        // Final Zip
         if (framesInCurrentZip > 0 && isExportingFrames) {
             exportStatusText.innerText = `Saving Final Part ${zipPart}...`;
             const content = await zip.generateAsync({type:"blob"});
@@ -773,6 +791,7 @@ function initProcessor() {
     destContainer.innerHTML = "";
     destContainer.appendChild(procCanvas);
     
+    // Explicitly fix aspect ratio display
     procCanvas.style.width = "100%";
     procCanvas.style.height = "auto";
 
@@ -824,7 +843,6 @@ function initProcessor() {
                     isHole = true;
                 }
 
-                // Map to Texture
                 vec2 pixelOffset = vec2(rUV.x, rUV.y) * 2.0 * uBall.z;
                 pixelOffset.y = -pixelOffset.y; 
 
@@ -896,10 +914,8 @@ function updateProcessorParams() {
     
     if (procCanvas.width !== targetW || procCanvas.height !== targetH) {
         procRenderer.setSize(targetW, targetH, false); 
-        
         procCanvas.style.width = "100%";
         procCanvas.style.height = "auto";
-        
         resInfo.innerText = `${targetW} x ${targetH} px`;
         
         initOrUpdate3D();
@@ -918,11 +934,11 @@ function updateProcessorParams() {
     const yaw = parseFloat(yawSlider.value) * (Math.PI / 180);
     const roll = parseFloat(rollSlider.value) * (Math.PI / 180);
     
-    const euler = new THREE.Euler(pitch, yaw, roll, 'YXZ');
-    const mat4 = new THREE.Matrix4().makeRotationFromEuler(euler);
-    const mat3 = new THREE.Matrix3().setFromMatrix4(mat4);
+    _euler.set(pitch, yaw, roll, 'YXZ');
+    _mat4.makeRotationFromEuler(_euler);
+    _mat3.setFromMatrix4(_mat4);
     
-    procMaterial.uniforms.uRotation.value = mat3;
+    procMaterial.uniforms.uRotation.value = _mat3;
 }
 
 function renderProcessor() {
@@ -1058,7 +1074,6 @@ function onMouseMove(e) {
         lastMouse = pos;
         drawUI();
         updateParams();
-        needsRender = true;
     }
 }
 
