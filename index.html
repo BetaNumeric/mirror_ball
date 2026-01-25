@@ -32,7 +32,13 @@
             background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
             border-radius: 0.5rem;
             background-color: #0f172a;
+            transition: border-color 0.2s;
         }
+        .canvas-container.drag-over {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+        }
+        
         /* Crucial: height: auto ensures aspect ratio is preserved */
         canvas {
             display: block;
@@ -97,7 +103,6 @@
         <!-- Header -->
         <div class="border-b border-gray-800 pb-4 mb-6">
             <h1 class="text-3xl font-bold text-white tracking-tight">Mirror Ball Unwrapper</h1>
-            <p class="text-gray-500 text-sm mt-1">GPU-Accelerated Sphere to Equirectangular Converter</p>
         </div>
 
         <!-- 1. Import & Playback Section -->
@@ -116,7 +121,12 @@
                         focus:outline-none
                     "/>
                 </label>
-                <div id="fileInfo" class="text-sm text-gray-400 hidden md:block"></div>
+                
+                <button id="loadExampleBtn" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
+                    Load Example
+                </button>
+                
+                <div id="fileInfo" class="text-sm text-gray-400 hidden md:block ml-auto truncate max-w-[200px]"></div>
             </div>
 
             <!-- Full Width Video Timeline (Hidden until video loaded) -->
@@ -140,15 +150,56 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
             <!-- Source Panel -->
-            <div class="space-y-2">
-                <div class="flex justify-between items-center px-1">
-                    <h2 class="text-sm font-bold text-indigo-400 uppercase tracking-wide">1. Align Source</h2>
+            <div class="space-y-2 relative">
+                <div class="flex justify-between items-center px-1 relative z-20">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-sm font-bold text-indigo-400 uppercase tracking-wide">1. Align Source</h2>
+                        
+                        <!-- Auto Detect Button -->
+                        <button id="autoDetectBtn" class="bg-indigo-900/50 hover:bg-indigo-600 text-indigo-300 hover:text-white text-[10px] px-2 py-0.5 rounded border border-indigo-700/50 transition-colors uppercase font-bold tracking-wide shadow-sm flex items-center gap-1">
+                            <span>Auto Detect</span>
+                        </button>
+                        <!-- Config Toggle -->
+                        <button id="toggleDetectConfig" class="text-gray-500 hover:text-indigo-400 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" /></svg>
+                        </button>
+                    </div>
                     <p class="text-[10px] text-gray-500 uppercase">Scroll to Zoom • Drag Ring</p>
                 </div>
-                <div class="canvas-container" id="sourceContainer">
+
+                <!-- Auto Detect Settings Popover -->
+                <div id="detectConfigPanel" class="hidden absolute top-8 left-0 z-30 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl p-3 w-64 text-xs">
+                    <h4 class="font-bold text-gray-300 mb-2 border-b border-gray-700 pb-1">Detection Settings</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-gray-400">Edge Sensitivity</label>
+                                <span id="valSensitivity" class="text-indigo-400">25%</span>
+                            </div>
+                            <input type="range" id="inpSensitivity" min="5" max="60" value="25" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-gray-400">Center Priority</label>
+                                <span id="valBias" class="text-indigo-400">High</span>
+                            </div>
+                            <input type="range" id="inpBias" min="0" max="100" value="60" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-gray-400">Min Radius</label>
+                                <span id="valMinRad" class="text-indigo-400">10%</span>
+                            </div>
+                            <input type="range" id="inpMinRad" min="1" max="40" value="10" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="canvas-container cursor-pointer transition-colors" id="sourceContainer">
                     <canvas id="sourceCanvas"></canvas>
-                    <div id="emptyState" class="absolute inset-0 flex items-center justify-center text-gray-600 pointer-events-none">
-                        <p class="font-medium">No media loaded</p>
+                    <div id="emptyState" class="absolute inset-0 flex items-center justify-center text-gray-500 pointer-events-none flex-col gap-2">
+                        <svg class="w-12 h-12 text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                        <p class="font-medium text-sm">Drag & drop or click to upload</p>
                     </div>
                 </div>
             </div>
@@ -367,6 +418,7 @@ const fileInput = document.getElementById('fileInput');
 const fileInfo = document.getElementById('fileInfo');
 const downloadBtn = document.getElementById('downloadBtn');
 const exportFramesBtn = document.getElementById('exportFramesBtn');
+const loadExampleBtn = document.getElementById('loadExampleBtn');
 const fpsControl = document.getElementById('fpsControl');
 const fpsInput = document.getElementById('fpsInput');
 const widthInput = document.getElementById('widthInput');
@@ -376,6 +428,7 @@ const exportStatusText = document.getElementById('exportStatusText');
 const exportPercentText = document.getElementById('exportPercentText');
 const exportProgressBar = document.getElementById('exportProgressBar');
 
+const sourceContainer = document.getElementById('sourceContainer');
 const sourceCanvas = document.getElementById('sourceCanvas');
 const ctxSource = sourceCanvas.getContext('2d');
 const emptyState = document.getElementById('emptyState');
@@ -394,6 +447,16 @@ const timeTotal = document.getElementById('timeTotal');
 const sourceVideoHidden = document.getElementById('sourceVideoHidden');
 const toastContainer = document.getElementById('toastContainer');
 
+const autoDetectBtn = document.getElementById('autoDetectBtn');
+const toggleDetectConfig = document.getElementById('toggleDetectConfig');
+const detectConfigPanel = document.getElementById('detectConfigPanel');
+const inpSensitivity = document.getElementById('inpSensitivity');
+const valSensitivity = document.getElementById('valSensitivity');
+const inpBias = document.getElementById('inpBias');
+const valBias = document.getElementById('valBias');
+const inpMinRad = document.getElementById('inpMinRad');
+const valMinRad = document.getElementById('valMinRad');
+
 const fovSlider = document.getElementById('fovSlider');
 const fovValue = document.getElementById('fovValue');
 const showSourceToggle = document.getElementById('showSourceToggle');
@@ -408,7 +471,48 @@ const rollValue = document.getElementById('rollValue');
 /**
  * --- INITIALIZATION & EVENTS ---
  */
-fileInput.addEventListener('change', handleFileSelect);
+fileInput.addEventListener('change', (e) => {
+    handleFileSelect(e.target.files[0]);
+});
+
+// Drag and Drop
+sourceContainer.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    sourceContainer.classList.add('drag-over');
+});
+sourceContainer.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    sourceContainer.classList.remove('drag-over');
+});
+sourceContainer.addEventListener('drop', (e) => {
+    e.preventDefault();
+    sourceContainer.classList.remove('drag-over');
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+        handleFileSelect(e.dataTransfer.files[0]);
+    }
+});
+
+// Click Empty State to Upload
+sourceContainer.addEventListener('click', (e) => {
+    if (!sourceMedia) {
+        fileInput.click();
+    }
+});
+
+// Load Example
+loadExampleBtn.addEventListener('click', async () => {
+    showToast("Loading example...", "info");
+    try {
+        const response = await fetch('example/example.jpg');
+        if (!response.ok) throw new Error("Example file not found");
+        const blob = await response.blob();
+        const file = new File([blob], "example.jpg", { type: "image/jpeg" });
+        handleFileSelect(file);
+    } catch (err) {
+        showToast("Example file not found.", "error");
+        console.warn(err);
+    }
+});
 
 // Init WebGL Processor once
 initProcessor();
@@ -433,11 +537,31 @@ videoSeek.addEventListener('input', () => {
     if (isVideo && sourceMedia) {
         const time = sourceMedia.duration * (videoSeek.value / 100);
         sourceMedia.currentTime = time;
-        needsRender = true; // Force render on seek
+        needsRender = true;
     }
 });
 
 exportFramesBtn.addEventListener('click', startFrameExport);
+autoDetectBtn.addEventListener('click', runAutoDetect);
+
+// Settings Toggles
+toggleDetectConfig.addEventListener('click', (e) => {
+    e.stopPropagation();
+    detectConfigPanel.classList.toggle('hidden');
+});
+window.addEventListener('click', (e) => {
+    if (!detectConfigPanel.contains(e.target) && e.target !== toggleDetectConfig) {
+        detectConfigPanel.classList.add('hidden');
+    }
+});
+
+// Detection Settings Live Update Labels
+inpSensitivity.addEventListener('input', () => { valSensitivity.innerText = `${inpSensitivity.value}%`; });
+inpBias.addEventListener('input', () => { 
+    valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; 
+});
+inpMinRad.addEventListener('input', () => { valMinRad.innerText = `${inpMinRad.value}%`; });
+
 
 // Controls
 const updateParams = () => {
@@ -490,11 +614,10 @@ downloadBtn.addEventListener('click', () => {
  * --- CORE FUNCTIONS ---
  */
 
-function handleFileSelect(e) {
-    const file = e.target.files[0];
+function handleFileSelect(file) {
     if (!file) return;
     
-    fileInfo.innerText = file.name;
+    if(fileInfo) fileInfo.innerText = file.name;
 
     const isVideoFile = file.type.startsWith('video/');
 
@@ -597,6 +720,7 @@ function initWorkspace() {
     requestAnimationFrame(animationLoop);
 }
 
+// Main Render Loop
 function animationLoop() {
     requestAnimationFrame(animationLoop);
     
@@ -628,6 +752,139 @@ function animationLoop() {
         }
         needsRender = false;
     }
+}
+
+/**
+ * --- AUTO DETECT ALGORITHM ---
+ */
+function runAutoDetect() {
+    if (!sourceMedia) return;
+    
+    showToast("Analyzing image...", "info");
+    
+    // Config from UI
+    const sensPct = parseInt(inpSensitivity.value) / 100; 
+    const biasPct = parseInt(inpBias.value) / 100;
+    const minRadPct = parseInt(inpMinRad.value) / 100;
+    
+    const w = sourceCanvas.width;
+    const h = sourceCanvas.height;
+    
+    const scale = 320 / Math.max(w, h);
+    const smallW = Math.floor(w * scale);
+    const smallH = Math.floor(h * scale);
+    
+    const smallCanvas = document.createElement('canvas');
+    smallCanvas.width = smallW;
+    smallCanvas.height = smallH;
+    const sCtx = smallCanvas.getContext('2d');
+    
+    sCtx.drawImage(sourceMedia, 0, 0, smallW, smallH);
+    const imgData = sCtx.getImageData(0, 0, smallW, smallH);
+    const data = imgData.data;
+    
+    const gray = new Float32Array(smallW * smallH);
+    for (let i = 0; i < smallW * smallH; i++) {
+        gray[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
+    }
+    
+    const mag = new Float32Array(smallW * smallH);
+    const gx = new Float32Array(smallW * smallH);
+    const gy = new Float32Array(smallW * smallH);
+    let maxMag = 0;
+    
+    for (let y = 1; y < smallH - 1; y++) {
+        for (let x = 1; x < smallW - 1; x++) {
+            const i = y * smallW + x;
+            const sx = -gray[i-smallW-1] + gray[i-smallW+1] -2*gray[i-1] + 2*gray[i+1] -gray[i+smallW-1] + gray[i+smallW+1];
+            const sy = -gray[i-smallW-1] -2*gray[i-smallW] -gray[i-smallW+1] +gray[i+smallW-1] + 2*gray[i+smallW] + gray[i+smallW+1];
+            
+            gx[i] = sx;
+            gy[i] = sy;
+            const m = Math.sqrt(sx*sx + sy*sy);
+            mag[i] = m;
+            if (m > maxMag) maxMag = m;
+        }
+    }
+    
+    const threshold = maxMag * (sensPct); 
+    const acc = new Float32Array(smallW * smallH);
+    const minR = Math.min(smallW, smallH) * minRadPct;
+    const maxR = Math.min(smallW, smallH) * 0.49; 
+    
+    for (let y = 2; y < smallH - 2; y++) {
+        for (let x = 2; x < smallW - 2; x++) {
+            const i = y * smallW + x;
+            if (mag[i] < threshold) continue;
+            
+            const dx = gx[i] / mag[i];
+            const dy = gy[i] / mag[i];
+            
+            for (let r = minR; r < maxR; r+=2) { 
+                let cx = Math.round(x + dx * r);
+                let cy = Math.round(y + dy * r);
+                if (cx > 0 && cx < smallW && cy > 0 && cy < smallH) acc[cy * smallW + cx]++;
+                
+                cx = Math.round(x - dx * r);
+                cy = Math.round(y - dy * r);
+                if (cx > 0 && cx < smallW && cy > 0 && cy < smallH) acc[cy * smallW + cx]++;
+            }
+        }
+    }
+    
+    let bestIdx = 0;
+    let maxVote = 0;
+    const midX = smallW/2;
+    const midY = smallH/2;
+    
+    for (let y = 0; y < smallH; y++) {
+        for (let x = 0; x < smallW; x++) {
+            const i = y * smallW + x;
+            const distFromMid = Math.sqrt((x-midX)**2 + (y-midY)**2);
+            const weight = 1.0 - (distFromMid / (smallW*0.7)) * biasPct;
+            const weightedVote = acc[i] * (weight > 0 ? weight : 0);
+            
+            if (weightedVote > maxVote) {
+                maxVote = weightedVote;
+                bestIdx = i;
+            }
+        }
+    }
+    
+    const centerX = bestIdx % smallW;
+    const centerY = Math.floor(bestIdx / smallW);
+    
+    const rHist = new Float32Array(Math.max(smallW, smallH));
+    
+    for (let y = 0; y < smallH; y++) {
+        for (let x = 0; x < smallW; x++) {
+            const i = y * smallW + x;
+            if (mag[i] > threshold) {
+                const d = Math.round(Math.sqrt((x-centerX)**2 + (y-centerY)**2));
+                if (d < rHist.length) rHist[d] += mag[i]; 
+            }
+        }
+    }
+    
+    let bestR = minR;
+    let maxRScore = 0;
+    for (let r = minR; r < maxR; r++) {
+        if (rHist[r] > maxRScore) {
+            maxRScore = rHist[r];
+            bestR = r;
+        }
+    }
+    
+    ball.x = centerX / scale;
+    ball.y = centerY / scale;
+    ball.r = bestR / scale;
+    
+    if (ball.r < 10) ball.r = 100;
+    
+    drawUI();
+    updateParams();
+    showToast("Circle updated!", "success");
+    detectConfigPanel.classList.add('hidden'); 
 }
 
 /**
@@ -768,7 +1025,7 @@ async function startFrameExport() {
     } finally {
         isExportingFrames = false;
         exportFramesBtn.disabled = false;
-        exportFramesBtn.innerText = "Export ZIP";
+        exportFramesBtn.innerText = "Export Frames (ZIP)";
         exportFramesBtn.onclick = startFrameExport; 
         exportProgressContainer.classList.add('hidden');
         fileInput.disabled = false;
