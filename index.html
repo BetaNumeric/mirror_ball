@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirror Ball to Equirectangular Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Import Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Import JSZip for zipping frames -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Import FileSaver for saving the zip -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: #e5e5e5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .canvas-container {
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            border: 1px solid #333;
+            background-image: 
+                linear-gradient(45deg, #222 25%, transparent 25%), 
+                linear-gradient(-45deg, #222 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #222 75%), 
+                linear-gradient(-45deg, transparent 75%, #222 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+        /* Crucial: height: auto ensures aspect ratio is preserved when width is constrained */
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: auto !important; 
+        }
+        
+        input[type="range"] {
+            accent-color: #3b82f6;
+        }
+        /* Checkbox styling */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #68D391;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #68D391;
+        }
+        
+        /* Toast Notification */
+        #toastContainer {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            background-color: #333;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border-left: 4px solid #3b82f6;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s ease;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .toast.error { border-left-color: #ef4444; }
+        .toast.success { border-left-color: #22c55e; }
+        .toast.info { border-left-color: #3b82f6; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-10 px-4">
+
+    <div class="w-full max-w-5xl space-y-8">
+        
+        <!-- Header -->
+        <div class="text-center space-y-2">
+            <h1 class="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">Mirror Ball Unwrapper</h1>
+            <p class="text-gray-400">GPU-Accelerated: Convert video & photo to 360° HDRI sequence.</p>
+        </div>
+
+        <!-- Main Controls (File & Action) -->
+        <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl flex flex-col md:flex-row gap-6 items-center justify-between">
+            <div class="flex items-center gap-4 w-full md:w-auto">
+                <label class="block w-full">
+                    <span class="sr-only">Choose File</span>
+                    <input type="file" id="fileInput" accept="image/*, video/*" class="block w-full text-sm text-gray-400
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-600 file:text-white
+                        hover:file:bg-blue-700
+                        cursor-pointer
+                    "/>
+                </label>
+            </div>
+
+            <!-- Video Controls -->
+            <div id="videoControls" class="hidden flex flex-col gap-2 flex-grow justify-center border-l border-r border-gray-600 px-4">
+                <div class="flex items-center gap-4 w-full">
+                    <button id="playPauseBtn" class="bg-blue-600 hover:bg-blue-500 text-white rounded-full p-2 w-10 h-10 flex items-center justify-center transition flex-shrink-0">
+                        <svg id="iconPlay" class="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg>
+                        <svg id="iconPause" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"/></svg>
+                    </button>
+                    <input type="range" id="videoSeek" min="0" max="100" value="0" step="0.1" class="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <div class="flex gap-4 w-full md:w-auto justify-end items-center flex-wrap">
+                <!-- Resolution Input -->
+                <div class="flex items-center gap-2">
+                    <label for="widthInput" class="text-xs text-gray-400 font-bold">Width:</label>
+                    <input type="number" id="widthInput" value="2048" step="128" class="w-20 bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- FPS Input -->
+                <div id="fpsControl" class="hidden flex items-center gap-2">
+                    <label for="fpsInput" class="text-xs text-gray-400 font-bold">FPS:</label>
+                    <input type="number" id="fpsInput" value="25" class="w-14 bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500">
+                </div>
+
+                <!-- Format Select -->
+                <div class="flex items-center gap-2">
+                    <label for="formatSelect" class="text-xs text-gray-400 font-bold">Format:</label>
+                    <select id="formatSelect" class="bg-gray-700 text-white text-sm rounded px-2 py-1 border border-gray-600 focus:outline-none focus:border-blue-500">
+                        <option value="jpg">JPG</option>
+                        <option value="png">PNG</option>
+                    </select>
+                </div>
+
+                <button id="exportFramesBtn" style="display:none" class="flex items-center px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors shadow-lg border border-purple-500 whitespace-nowrap">
+                    Export Frames
+                </button>
+                <button id="downloadBtn" style="display:none" class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors border border-gray-500">
+                    Download Image
+                </button>
+            </div>
+        </div>
+        
+        <!-- Progress Bar (Contextual) -->
+        <div id="exportProgressContainer" class="w-full bg-gray-800 rounded-lg p-4 border border-gray-700 shadow-xl hidden">
+            <div class="flex justify-between text-sm text-gray-300 mb-1">
+                <span id="exportStatusText">Exporting Frame 0...</span>
+                <span id="exportPercentText">0%</span>
+            </div>
+            <div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div id="exportProgressBar" class="h-full bg-purple-500 transition-all duration-75" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <!-- Workspace Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <!-- Source Image Panel (UI Canvas) -->
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-blue-400">1. Align Circle</h2>
+                    <p class="text-xs text-gray-400">Zoom: Scroll • Move: Drag BG • Scale: Drag Ring</p>
+                </div>
+                <div class="canvas-container rounded-lg" id="sourceContainer">
+                    <canvas id="sourceCanvas"></canvas>
+                    <div id="emptyState" class="absolute inset-0 flex items-center justify-center text-gray-500 pointer-events-none">
+                        <p>Upload an image or video to begin</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Result Image Panel (WebGL Canvas) -->
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl font-semibold text-green-400">2. Result</h2>
+                    <p class="text-xs text-gray-400" id="resInfo">0 x 0 px</p>
+                </div>
+                <!-- This container will hold the Three.js Canvas -->
+                <div class="canvas-container rounded-lg min-h-[200px] flex items-center justify-center bg-gray-900" id="destContainer">
+                    <!-- WebGL Canvas injected here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Adjustment Controls -->
+        <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-xl">
+            <h3 class="text-lg font-semibold text-gray-300 mb-4 border-b border-gray-700 pb-2">Adjustments</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="fovSlider" class="text-sm font-semibold text-gray-300">Source Coverage</label>
+                        <span id="fovValue" class="text-xs text-gray-400">360°</span>
+                    </div>
+                    <input type="range" id="fovSlider" min="180" max="360" value="360" step="1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                </div>
+
+                <div class="flex flex-col justify-center">
+                    <div class="flex items-center justify-between mb-2">
+                         <span class="text-sm font-semibold text-gray-300">Hole Content</span>
+                    </div>
+                    <label class="flex items-center cursor-pointer relative mb-1">
+                        <input type="checkbox" id="showSourceToggle" class="sr-only" checked>
+                        <div class="w-11 h-6 bg-gray-600 rounded-full border border-gray-500 transition-colors" id="toggleBg"></div>
+                        <div class="dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition transform" id="toggleDot"></div>
+                        <span class="ml-3 text-sm font-medium text-gray-300">Show Source in Hole</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="pitchSlider" class="text-xs font-semibold text-gray-400">Pitch (X)</label>
+                        <span id="pitchValue" class="text-xs text-gray-500">0°</span>
+                    </div>
+                    <input type="range" id="pitchSlider" min="-180" max="180" value="0" step="1" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="yawSlider" class="text-xs font-semibold text-gray-400">Yaw (Y)</label>
+                        <span id="yawValue" class="text-xs text-gray-500">0°</span>
+                    </div>
+                    <input type="range" id="yawSlider" min="-180" max="180" value="0" step="1" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label for="rollSlider" class="text-xs font-semibold text-gray-400">Roll (Z)</label>
+                        <span id="rollValue" class="text-xs text-gray-500">0°</span>
+                    </div>
+                    <input type="range" id="rollSlider" min="-180" max="180" value="0" step="1" class="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+        </div>
+
+        <!-- 3D Preview Panel -->
+        <div id="viewerSection" class="hidden w-full space-y-3">
+            <div class="flex justify-between items-center border-t border-gray-700 pt-6">
+                <h2 class="text-xl font-semibold text-purple-400">3. 360° Preview</h2>
+                <p class="text-xs text-gray-400">Drag to look • Scroll to zoom</p>
+            </div>
+            <div id="threeContainer" class="canvas-container rounded-lg h-[500px] w-full bg-black cursor-move relative">
+                <!-- Three.js Canvas will be injected here -->
+            </div>
+        </div>
+
+        <!-- FAQ -->
+        <div class="bg-gray-900 p-6 rounded-lg border border-gray-800 text-sm text-gray-400">
+            <h3 class="font-bold text-gray-300 mb-2">Tips for best results:</h3>
+            <ul class="list-disc pl-5 space-y-1">
+                <li><strong>Frame Export:</strong> This saves every frame as a high-quality image. JPG is smaller, PNG is higher quality.</li>
+                <li><strong>FPS:</strong> Set this to match your source video (usually 24, 25, 30, or 60).</li>
+                <li><strong>Resolution:</strong> Higher resolutions consume more memory. If export fails, try reducing the Width.</li>
+            </ul>
+        </div>
+
+    </div>
+
+    <!-- Hidden Video Element -->
+    <video id="sourceVideoHidden" class="hidden" playsinline loop muted crossorigin="anonymous"></video>
+
+    <!-- Toast Container -->
+    <div id="toastContainer"></div>
+
+<script>
+/**
+ * --- GLOBAL VARIABLES ---
+ */
+// Three.js State
+let scene, camera, renderer, sphereMesh; // 3D Preview
+let procScene, procCamera, procRenderer, procMaterial, procTexture, procCanvas; // WebGL Processor
+
+// Interaction State
+let isUserInteracting = false;
+let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
+let lon = 0, onPointerDownLon = 0;
+let lat = 0, onPointerDownLat = 0;
+let phi = 0, theta = 0;
+
+let sourceMedia = null; 
+let isVideo = false;
+let isVideoPlaying = false;
+let isExportingFrames = false;
+let maxTextureSize = 4096; // Will be updated by GPU capability
+let needsRender = false; // DIRTY FLAG for static rendering optimization
+
+// Align Circle State
+let ball = { x: 0, y: 0, r: 100 };
+
+// Canvas View State
+let viewScale = 1;
+let viewOffset = { x: 0, y: 0 };
+
+// Interaction State
+let isDragging = false;
+let isPanning = false;
+let dragMode = null; 
+let lastMouse = { x: 0, y: 0 };
+
+/**
+ * --- UTILS ---
+ */
+function toImageSpace(screenX, screenY) {
+    return {
+        x: (screenX - viewOffset.x) / viewScale,
+        y: (screenY - viewOffset.y) / viewScale
+    };
+}
+
+function getScreenPos(evt) {
+    const rect = sourceCanvas.getBoundingClientRect();
+    const scaleX = sourceCanvas.width / rect.width;
+    const scaleY = sourceCanvas.height / rect.height;
+    return {
+        x: (evt.clientX - rect.left) * scaleX,
+        y: (evt.clientY - rect.top) * scaleY
+    };
+}
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerText = message;
+    toastContainer.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+/**
+ * --- DOM ELEMENTS ---
+ */
+const fileInput = document.getElementById('fileInput');
+const downloadBtn = document.getElementById('downloadBtn');
+const exportFramesBtn = document.getElementById('exportFramesBtn');
+const fpsControl = document.getElementById('fpsControl');
+const fpsInput = document.getElementById('fpsInput');
+const widthInput = document.getElementById('widthInput');
+const formatSelect = document.getElementById('formatSelect');
+const exportProgressContainer = document.getElementById('exportProgressContainer');
+const exportStatusText = document.getElementById('exportStatusText');
+const exportPercentText = document.getElementById('exportPercentText');
+const exportProgressBar = document.getElementById('exportProgressBar');
+
+const sourceCanvas = document.getElementById('sourceCanvas');
+const ctxSource = sourceCanvas.getContext('2d');
+const emptyState = document.getElementById('emptyState');
+const resInfo = document.getElementById('resInfo');
+const viewerSection = document.getElementById('viewerSection');
+const threeContainer = document.getElementById('threeContainer');
+const destContainer = document.getElementById('destContainer');
+
+// Video UI
+const videoControls = document.getElementById('videoControls');
+const playPauseBtn = document.getElementById('playPauseBtn');
+const iconPlay = document.getElementById('iconPlay');
+const iconPause = document.getElementById('iconPause');
+const videoSeek = document.getElementById('videoSeek');
+const sourceVideoHidden = document.getElementById('sourceVideoHidden');
+const toastContainer = document.getElementById('toastContainer');
+
+// Controls
+const fovSlider = document.getElementById('fovSlider');
+const fovValue = document.getElementById('fovValue');
+const showSourceToggle = document.getElementById('showSourceToggle');
+const toggleBg = document.getElementById('toggleBg');
+const toggleDot = document.getElementById('toggleDot');
+const pitchSlider = document.getElementById('pitchSlider');
+const pitchValue = document.getElementById('pitchValue');
+const yawSlider = document.getElementById('yawSlider');
+const yawValue = document.getElementById('yawValue');
+const rollSlider = document.getElementById('rollSlider');
+const rollValue = document.getElementById('rollValue');
+
+
+/**
+ * --- INITIALIZATION & EVENTS ---
+ */
+fileInput.addEventListener('change', handleFileSelect);
+
+// Init WebGL Processor once
+initProcessor();
+
+// Handle Context Lost
+if (procRenderer && procRenderer.domElement) {
+    procRenderer.domElement.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        showToast("GPU Context Lost. Reload page.", "error");
+    }, false);
+    procRenderer.domElement.addEventListener('webglcontextrestored', () => {
+        if (sourceMedia) {
+            needsRender = true;
+            updateProcessorParams();
+        }
+    }, false);
+}
+
+// Video Controls
+playPauseBtn.addEventListener('click', toggleVideoPlayback);
+videoSeek.addEventListener('input', () => {
+    if (isVideo && sourceMedia) {
+        const time = sourceMedia.duration * (videoSeek.value / 100);
+        sourceMedia.currentTime = time;
+        needsRender = true; // Force render on seek
+    }
+});
+
+exportFramesBtn.addEventListener('click', startFrameExport);
+
+// Controls
+const updateParams = () => {
+    updateProcessorParams();
+    updateUIValues();
+    needsRender = true; // Flag for next frame
+};
+
+const updateUIValues = () => {
+    fovValue.innerText = `${fovSlider.value}°`;
+    pitchValue.innerText = `${pitchSlider.value}°`;
+    yawValue.innerText = `${yawSlider.value}°`;
+    rollValue.innerText = `${rollSlider.value}°`;
+};
+
+fovSlider.addEventListener('input', updateParams);
+pitchSlider.addEventListener('input', updateParams);
+yawSlider.addEventListener('input', updateParams);
+rollSlider.addEventListener('input', updateParams);
+widthInput.addEventListener('change', updateParams); 
+showSourceToggle.addEventListener('change', () => {
+    if(showSourceToggle.checked) {
+        toggleBg.classList.replace('bg-gray-600', 'bg-green-500');
+        toggleDot.classList.add('translate-x-5');
+    } else {
+        toggleBg.classList.replace('bg-green-500', 'bg-gray-600');
+        toggleDot.classList.remove('translate-x-5');
+    }
+    updateParams();
+});
+
+// Canvas Interactions
+sourceCanvas.addEventListener('mousedown', onMouseDown);
+sourceCanvas.addEventListener('mousemove', onMouseMove);
+window.addEventListener('mouseup', onMouseUp);
+sourceCanvas.addEventListener('wheel', onWheel, { passive: false });
+sourceCanvas.addEventListener('touchstart', (e) => {
+    const touch = e.touches[0];
+    onMouseDown({ clientX: touch.clientX, clientY: touch.clientY, target: sourceCanvas, preventDefault: () => e.preventDefault() });
+}, {passive: false});
+window.addEventListener('touchmove', (e) => {
+    if(isDragging || isPanning) e.preventDefault(); 
+    const touch = e.touches[0];
+    onMouseMove({ clientX: touch.clientX, clientY: touch.clientY, target: sourceCanvas });
+}, {passive: false});
+window.addEventListener('touchend', onMouseUp);
+
+downloadBtn.addEventListener('click', () => {
+    needsRender = true;
+    renderProcessor(); 
+    const link = document.createElement('a');
+    link.download = 'equirectangular-map.png';
+    link.href = procCanvas.toDataURL();
+    link.click();
+});
+
+
+/**
+ * --- CORE FUNCTIONS ---
+ */
+
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const isVideoFile = file.type.startsWith('video/');
+
+    if (isVideoFile) {
+        isVideo = true;
+        const url = URL.createObjectURL(file);
+        sourceVideoHidden.src = url;
+        sourceMedia = sourceVideoHidden;
+        sourceVideoHidden.muted = true;
+        
+        sourceVideoHidden.onerror = () => {
+            showToast("Error loading video.", "error");
+        };
+
+        sourceVideoHidden.onloadeddata = () => {
+            sourceVideoHidden.currentTime = 0.001;
+        };
+
+        sourceVideoHidden.onseeked = () => {
+            sourceVideoHidden.onseeked = null;
+            initWorkspace();
+            videoControls.classList.remove('hidden');
+            fpsControl.classList.remove('hidden');
+            exportFramesBtn.style.display = 'block';
+            downloadBtn.style.display = 'none';
+        };
+    } else {
+        isVideo = false;
+        videoControls.classList.add('hidden');
+        fpsControl.classList.add('hidden');
+        exportFramesBtn.style.display = 'none';
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            sourceMedia = new Image();
+            sourceMedia.onload = function() {
+                console.log("Image loaded", sourceMedia.width, sourceMedia.height);
+                initWorkspace();
+            }
+            sourceMedia.src = event.target.result;
+        }
+        reader.readAsDataURL(file);
+    }
+}
+
+function initWorkspace() {
+    emptyState.style.display = 'none';
+    viewerSection.classList.remove('hidden'); 
+    
+    const w = isVideo ? sourceMedia.videoWidth : sourceMedia.width;
+    const h = isVideo ? sourceMedia.videoHeight : sourceMedia.height;
+    
+    sourceCanvas.width = w;
+    sourceCanvas.height = h;
+    
+    viewScale = 1;
+    viewOffset = { x: 0, y: 0 };
+    ball.x = w / 2;
+    ball.y = h / 2;
+    ball.r = Math.min(w, h) * 0.4;
+    
+    // Auto-calculate optimal width but clamp initially for safety
+    let optimalW = Math.floor(ball.r * 2 * Math.PI);
+    if(optimalW > 4096) optimalW = 4096; // Safe default
+    widthInput.value = optimalW;
+
+    // Texture Setup
+    if (procTexture) procTexture.dispose();
+    procTexture = new THREE.Texture(sourceMedia);
+    procTexture.minFilter = THREE.LinearFilter;
+    procTexture.magFilter = THREE.LinearFilter;
+    procTexture.generateMipmaps = false;
+    
+    procTexture.needsUpdate = true; // Essential for first load
+    
+    procMaterial.uniforms.tDiffuse.value = procTexture;
+    procMaterial.uniforms.uResolution.value.set(w, h);
+
+    // Initial render
+    needsRender = true;
+    drawUI();
+    updateProcessorParams();
+    renderProcessor();
+    initOrUpdate3D(); 
+    
+    resInfo.innerText = "Ready.";
+    downloadBtn.style.display = isVideo ? 'none' : 'block';
+    
+    requestAnimationFrame(animationLoop);
+}
+
+// Main Render Loop
+function animationLoop() {
+    requestAnimationFrame(animationLoop);
+    
+    if (!sourceMedia) return;
+
+    let shouldRender = needsRender;
+
+    // UI Updates / Video Frame Updates
+    if (isVideo && !isExportingFrames) {
+        if (!sourceVideoHidden.paused) {
+            if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
+                procTexture.needsUpdate = true;
+                shouldRender = true;
+            }
+            const pct = (sourceMedia.currentTime / sourceMedia.duration) * 100;
+            videoSeek.value = isNaN(pct) ? 0 : pct;
+            drawUI(); 
+        }
+    }
+
+    // Only render loop if NOT exporting
+    if (!isExportingFrames && shouldRender) {
+        if (!isVideo) {
+            // Force texture update once to catch up with image decode
+            // But don't do it every frame for performance
+            if(needsRender) procTexture.needsUpdate = true;
+        }
+
+        renderProcessor();
+        
+        // Force update map for 3D view
+        if (sphereMesh && sphereMesh.material.map) {
+            sphereMesh.material.map.needsUpdate = true;
+        }
+        
+        needsRender = false; // Reset dirty flag
+    }
+}
+
+/**
+ * --- VIDEO CONTROL FUNCTION ---
+ */
+function toggleVideoPlayback() {
+    if (!isVideo || !sourceMedia) return;
+    
+    if (sourceMedia.paused) {
+        sourceMedia.play();
+        isVideoPlaying = true;
+        if(iconPlay) iconPlay.classList.add('hidden');
+        if(iconPause) iconPause.classList.remove('hidden');
+    } else {
+        sourceMedia.pause();
+        isVideoPlaying = false;
+        if(iconPlay) iconPlay.classList.remove('hidden');
+        if(iconPause) iconPause.classList.add('hidden');
+        needsRender = true;
+    }
+}
+
+/**
+ * --- FRAME EXPORT LOGIC (ZIP) ---
+ */
+async function startFrameExport() {
+    if (!isVideo || !sourceMedia) return;
+    if (isExportingFrames) return; 
+
+    isExportingFrames = true;
+    sourceVideoHidden.pause();
+    
+    if (isVideoPlaying) {
+        isVideoPlaying = false;
+        if(iconPlay) iconPlay.classList.remove('hidden');
+        if(iconPause) iconPause.classList.add('hidden');
+    }
+    
+    const fps = parseInt(fpsInput.value) || 25;
+    const interval = 1.0 / fps;
+    const duration = sourceMedia.duration;
+    
+    // Format Selection
+    const format = formatSelect.value; 
+    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    const ext = format === 'jpg' ? 'jpg' : 'png';
+    
+    const width = parseInt(widthInput.value) || 2048;
+    
+    let framesPerZip;
+    if (format === 'jpg') {
+        if (width > 3000) framesPerZip = 500; 
+        else if (width > 1500) framesPerZip = 2000; 
+        else framesPerZip = 3000;
+    } else {
+        if (width > 3000) framesPerZip = 100; 
+        else if (width > 1500) framesPerZip = 300; 
+        else framesPerZip = 500;
+    }
+    
+    exportFramesBtn.disabled = true;
+    exportFramesBtn.innerText = "Stop Export";
+    exportFramesBtn.onclick = () => { isExportingFrames = false; }; 
+    exportProgressContainer.classList.remove('hidden');
+    fileInput.disabled = true;
+    videoControls.classList.add('opacity-50', 'pointer-events-none');
+
+    let currentTime = 0;
+    let frameCount = 0;
+    const totalFramesEstimate = Math.ceil(duration * fps);
+    let zipPart = 1;
+
+    let zip = new JSZip();
+    let framesFolder = zip.folder("frames");
+    let framesInCurrentZip = 0;
+
+    procTexture.image = sourceVideoHidden; 
+    
+    const seekTo = (time) => {
+        return new Promise((resolve) => {
+            const onSeek = () => {
+                sourceVideoHidden.removeEventListener('seeked', onSeek);
+                resolve();
+            };
+            sourceVideoHidden.addEventListener('seeked', onSeek);
+            sourceVideoHidden.currentTime = time;
+        });
+    };
+
+    try {
+        while (currentTime < duration && isExportingFrames) {
+            await seekTo(currentTime);
+            procTexture.needsUpdate = true;
+            renderProcessor();
+            
+            const quality = format === 'jpg' ? 0.9 : undefined;
+            const blob = await new Promise(resolve => procCanvas.toBlob(resolve, mimeType, quality));
+            
+            const filename = `frame_${String(frameCount).padStart(5, '0')}.${ext}`;
+            framesFolder.file(filename, blob);
+            framesInCurrentZip++;
+            
+            if (framesInCurrentZip >= framesPerZip) {
+                exportStatusText.innerText = `Saving Part ${zipPart}...`;
+                const content = await zip.generateAsync({type:"blob"});
+                saveAs(content, `equirectangular_frames_part${zipPart}.zip`);
+                zip = new JSZip();
+                framesFolder = zip.folder("frames");
+                framesInCurrentZip = 0;
+                zipPart++;
+            }
+            
+            frameCount++;
+            const pct = Math.min(100, Math.round((currentTime / duration) * 100));
+            exportProgressBar.style.width = `${pct}%`;
+            exportPercentText.innerText = `${pct}%`;
+            exportStatusText.innerText = `Processing Frame ${frameCount} / ${totalFramesEstimate}`;
+            
+            currentTime += interval;
+            await new Promise(r => setTimeout(r, 0));
+        }
+        
+        if (framesInCurrentZip > 0 && isExportingFrames) {
+            exportStatusText.innerText = `Saving Final Part ${zipPart}...`;
+            const content = await zip.generateAsync({type:"blob"});
+            saveAs(content, `equirectangular_frames_part${zipPart}.zip`);
+        }
+        
+        if (isExportingFrames) {
+            showToast("Export Complete!", "success");
+        } else {
+            showToast("Export Cancelled.", "info");
+        }
+
+    } catch (err) {
+        console.error(err);
+        showToast("Export Failed. See console.", "error");
+    } finally {
+        isExportingFrames = false;
+        exportFramesBtn.disabled = false;
+        exportFramesBtn.innerText = "Export Frames (ZIP)";
+        exportFramesBtn.onclick = startFrameExport; 
+        exportProgressContainer.classList.add('hidden');
+        fileInput.disabled = false;
+        videoControls.classList.remove('opacity-50', 'pointer-events-none');
+        sourceVideoHidden.currentTime = 0;
+    }
+}
+
+
+/**
+ * --- WEBGL PROCESSOR ---
+ */
+function initProcessor() {
+    procRenderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+    
+    // Check Max Texture Size
+    const gl = procRenderer.getContext();
+    maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    
+    procRenderer.setSize(1024, 512, false); 
+    procCanvas = procRenderer.domElement;
+    destContainer.innerHTML = "";
+    destContainer.appendChild(procCanvas);
+    
+    procCanvas.style.width = "100%";
+    procCanvas.style.height = "auto";
+
+    procScene = new THREE.Scene();
+    procCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    
+    const geometry = new THREE.PlaneBufferGeometry(2, 2);
+    
+    const fragmentShader = `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uResolution;
+        uniform vec4 uBall;
+        uniform float uFov;
+        uniform bool uShowSource; 
+        uniform mat3 uRotation;
+        
+        varying vec2 vUv;
+
+        #define PI 3.14159265359
+
+        void main() {
+            float theta = (1.0 - vUv.y) * PI - (PI / 2.0);
+            float phi = vUv.x * 2.0 * PI - PI;
+
+            float cosTheta = cos(theta);
+            vec3 dir;
+            dir.x = cosTheta * sin(phi);
+            dir.y = sin(theta);
+            dir.z = cosTheta * cos(phi);
+
+            dir = uRotation * dir;
+
+            float m = 2.0 * sqrt(dir.x*dir.x + dir.y*dir.y + (dir.z + 1.0)*(dir.z + 1.0));
+            
+            vec2 srcPos;
+            bool isHole = false;
+
+            float maxHalfAngle = uFov / 2.0;
+            float scaleFactor = 1.0 / sin(maxHalfAngle / 2.0);
+
+            if (m == 0.0) {
+                isHole = true;
+            } else {
+                vec2 rUV = vec2(dir.x / m, dir.y / m);
+                rUV *= scaleFactor;
+
+                float distSq = dot(rUV, rUV);
+                if (distSq > 0.25001) {
+                    isHole = true;
+                }
+
+                // Map to Texture
+                vec2 pixelOffset = vec2(rUV.x, rUV.y) * 2.0 * uBall.z;
+                pixelOffset.y = -pixelOffset.y; 
+
+                vec2 pixelPos = uBall.xy + pixelOffset;
+                srcPos = pixelPos / uResolution;
+            }
+
+            if (isHole) {
+                if (uShowSource) {
+                    float angleBack = acos(clamp(-dir.z, -1.0, 1.0));
+                    float holeRadiusAngle = PI - maxHalfAngle;
+                    
+                    if (holeRadiusAngle > 0.001) {
+                        float normDist = angleBack / holeRadiusAngle;
+                        float imgR = normDist * 0.5;
+                        float imgTheta = atan(dir.y, dir.x);
+                        
+                        vec2 stickerOffset = vec2(cos(imgTheta), -sin(imgTheta)) * imgR * 2.0 * uBall.z;
+                        srcPos = (uBall.xy + stickerOffset) / uResolution;
+                        gl_FragColor = texture2D(tDiffuse, srcPos); 
+                    } else {
+                        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                    }
+                } else {
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                }
+            } else {
+                gl_FragColor = texture2D(tDiffuse, srcPos);
+            }
+        }
+    `;
+
+    const vertexShader = `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `;
+
+    procMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+            tDiffuse: { value: null },
+            uResolution: { value: new THREE.Vector2(1, 1) },
+            uBall: { value: new THREE.Vector4(0, 0, 100, 1) },
+            uFov: { value: Math.PI },
+            uShowSource: { value: true },
+            uRotation: { value: new THREE.Matrix3() }
+        },
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
+        side: THREE.DoubleSide
+    });
+
+    const plane = new THREE.Mesh(geometry, procMaterial);
+    procScene.add(plane);
+}
+
+function updateProcessorParams() {
+    let targetW = parseInt(widthInput.value) || 2048;
+    
+    if (targetW > maxTextureSize) {
+        targetW = maxTextureSize;
+        widthInput.value = targetW;
+        showToast(`Clamped to GPU limit: ${maxTextureSize}px`, 'info');
+    }
+    
+    let targetH = Math.floor(targetW / 2);
+    
+    if (procCanvas.width !== targetW || procCanvas.height !== targetH) {
+        procRenderer.setSize(targetW, targetH, false); 
+        
+        procCanvas.style.width = "100%";
+        procCanvas.style.height = "auto";
+        
+        resInfo.innerText = `${targetW} x ${targetH} px`;
+        
+        initOrUpdate3D();
+    }
+
+    const glBallY = sourceCanvas.height - ball.y;
+    procMaterial.uniforms.uBall.value.set(ball.x, glBallY, ball.r, 0);
+    
+    const deg = parseInt(fovSlider.value);
+    const rad = deg * (Math.PI / 180);
+    procMaterial.uniforms.uFov.value = rad;
+    
+    procMaterial.uniforms.uShowSource.value = showSourceToggle.checked;
+    
+    const pitch = parseFloat(pitchSlider.value) * (Math.PI / 180);
+    const yaw = parseFloat(yawSlider.value) * (Math.PI / 180);
+    const roll = parseFloat(rollSlider.value) * (Math.PI / 180);
+    
+    const euler = new THREE.Euler(pitch, yaw, roll, 'YXZ');
+    const mat4 = new THREE.Matrix4().makeRotationFromEuler(euler);
+    const mat3 = new THREE.Matrix3().setFromMatrix4(mat4);
+    
+    procMaterial.uniforms.uRotation.value = mat3;
+}
+
+function renderProcessor() {
+    if(procRenderer) procRenderer.render(procScene, procCamera);
+}
+
+
+/**
+ * --- UI DRAWING (CPU CANVAS) ---
+ */
+function drawUI() {
+    if (!sourceMedia) return;
+    
+    ctxSource.setTransform(1, 0, 0, 1, 0, 0);
+    ctxSource.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    
+    ctxSource.translate(viewOffset.x, viewOffset.y);
+    ctxSource.scale(viewScale, viewScale);
+    
+    ctxSource.drawImage(sourceMedia, 0, 0);
+    
+    const lw = 3 / viewScale;
+    const hs = 8 / viewScale;
+    
+    ctxSource.beginPath();
+    ctxSource.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+    ctxSource.lineWidth = lw;
+    ctxSource.strokeStyle = '#ef4444';
+    ctxSource.stroke();
+    
+    ctxSource.fillStyle = '#fff';
+    const drawH = (x,y) => {
+        ctxSource.beginPath(); ctxSource.arc(x,y,hs,0,Math.PI*2); ctxSource.fill(); ctxSource.stroke();
+    };
+    drawH(ball.x + ball.r, ball.y);
+    drawH(ball.x - ball.r, ball.y);
+    drawH(ball.x, ball.y - ball.r);
+    drawH(ball.x, ball.y + ball.r);
+}
+
+// Interaction handlers
+function onWheel(e) {
+    if(!sourceMedia) return;
+    e.preventDefault();
+    const pos = getScreenPos(e);
+    const imgPos = toImageSpace(pos.x, pos.y);
+    const zoom = 0.1;
+    const delta = -Math.sign(e.deltaY);
+    
+    viewScale += delta * zoom * viewScale;
+    viewScale = Math.max(0.1, Math.min(20, viewScale));
+    
+    viewOffset.x = pos.x - imgPos.x * viewScale;
+    viewOffset.y = pos.y - imgPos.y * viewScale;
+    drawUI();
+}
+
+function onMouseDown(e) {
+    if(!sourceMedia) return;
+    const pos = getScreenPos(e);
+    const ip = toImageSpace(pos.x, pos.y);
+    lastMouse = pos;
+    
+    const tol = 30 / viewScale;
+    const distC = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
+    const distR = Math.abs(distC - ball.r);
+    
+    // Handles
+    const rightH = { x: ball.x + ball.r, y: ball.y };
+    const leftH = { x: ball.x - ball.r, y: ball.y };
+    const topH = { x: ball.x, y: ball.y - ball.r };
+    const bottomH = { x: ball.x, y: ball.y + ball.r };
+
+    const dRight = Math.sqrt((ip.x - rightH.x)**2 + (ip.y - rightH.y)**2);
+    const dLeft = Math.sqrt((ip.x - leftH.x)**2 + (ip.y - leftH.y)**2);
+    const dTop = Math.sqrt((ip.x - topH.x)**2 + (ip.y - topH.y)**2);
+    const dBottom = Math.sqrt((ip.x - bottomH.x)**2 + (ip.y - bottomH.y)**2);
+
+    if (dRight < tol) { isDragging=true; dragMode='resize-right'; sourceCanvas.style.cursor = 'ew-resize'; }
+    else if (dLeft < tol) { isDragging=true; dragMode='resize-left'; sourceCanvas.style.cursor = 'ew-resize'; }
+    else if (dTop < tol) { isDragging=true; dragMode='resize-top'; sourceCanvas.style.cursor = 'ns-resize'; }
+    else if (dBottom < tol) { isDragging=true; dragMode='resize-bottom'; sourceCanvas.style.cursor = 'ns-resize'; }
+    else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; sourceCanvas.style.cursor = 'nwse-resize'; }
+    else if (distC < ball.r) { isDragging=true; dragMode='move'; sourceCanvas.style.cursor = 'move'; }
+    else { isPanning=true; sourceCanvas.style.cursor = 'grabbing'; }
+}
+
+function onMouseMove(e) {
+    if(!sourceMedia) return;
+    const pos = getScreenPos(e);
+    
+    if(isPanning) {
+        viewOffset.x += pos.x - lastMouse.x;
+        viewOffset.y += pos.y - lastMouse.y;
+        lastMouse = pos;
+        drawUI();
+        return;
+    }
+    
+    if(isDragging) {
+        if(dragMode === 'move') {
+            ball.x += (pos.x - lastMouse.x) / viewScale;
+            ball.y += (pos.y - lastMouse.y) / viewScale;
+        } else if (dragMode === 'scale') {
+            const ip = toImageSpace(pos.x, pos.y);
+            const d = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
+            ball.r = d;
+        } else if (dragMode === 'resize-uniform') {
+            const ip = toImageSpace(pos.x, pos.y);
+            ball.r = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
+        } else if (dragMode === 'resize-right') {
+            const ip = toImageSpace(pos.x, pos.y);
+            const anchorX = ball.x - ball.r;
+            const newDia = Math.max(1, ip.x - anchorX);
+            ball.r = newDia / 2; ball.x = anchorX + ball.r;
+        } else if (dragMode === 'resize-left') {
+            const ip = toImageSpace(pos.x, pos.y);
+            const anchorX = ball.x + ball.r;
+            const newDia = Math.max(1, anchorX - ip.x);
+            ball.r = newDia / 2; ball.x = anchorX - ball.r;
+        } else if (dragMode === 'resize-bottom') {
+            const ip = toImageSpace(pos.x, pos.y);
+            const anchorY = ball.y - ball.r;
+            const newDia = Math.max(1, ip.y - anchorY);
+            ball.r = newDia / 2; ball.y = anchorY + ball.r;
+        } else if (dragMode === 'resize-top') {
+            const ip = toImageSpace(pos.x, pos.y);
+            const anchorY = ball.y + ball.r;
+            const newDia = Math.max(1, anchorY - ip.y);
+            ball.r = newDia / 2; ball.y = anchorY - ball.r;
+        }
+        
+        lastMouse = pos;
+        drawUI();
+        updateParams();
+        needsRender = true;
+    }
+}
+
+function onMouseUp() {
+    isDragging = false; isPanning = false;
+    if(sourceCanvas) sourceCanvas.style.cursor = 'default';
+}
+
+/**
+ * --- 3D PREVIEW VIEWER ---
+ */
+function initOrUpdate3D() {
+    if (!scene) {
+        initThreeJS();
+    } else {
+        if (sphereMesh.material.map && sphereMesh.material.map.image !== procCanvas) {
+             sphereMesh.material.map.dispose();
+             const tex = new THREE.CanvasTexture(procCanvas);
+             tex.minFilter = THREE.LinearFilter;
+             tex.generateMipmaps = false;
+             sphereMesh.material.map = tex;
+        }
+        sphereMesh.material.map.needsUpdate = true;
+    }
+}
+
+function initThreeJS() {
+    const container = threeContainer;
+    camera = new THREE.PerspectiveCamera(75, container.clientWidth/container.clientHeight, 1, 1100);
+    camera.target = new THREE.Vector3(0,0,0);
+    scene = new THREE.Scene();
+    
+    const geo = new THREE.SphereGeometry(500, 60, 40);
+    geo.scale(-1, 1, 1);
+    
+    const tex = new THREE.CanvasTexture(procCanvas);
+    tex.minFilter = THREE.LinearFilter; 
+    tex.generateMipmaps = false;        
+    
+    const mat = new THREE.MeshBasicMaterial({ map: tex });
+    sphereMesh = new THREE.Mesh(geo, mat);
+    scene.add(sphereMesh);
+    
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.innerHTML = "";
+    container.appendChild(renderer.domElement);
+    
+    container.addEventListener('mousedown', (e)=>{ isUserInteracting=true; onPointerDownPointerX=e.clientX; onPointerDownPointerY=e.clientY; onPointerDownLon=lon; onPointerDownLat=lat; });
+    container.addEventListener('mousemove', (e)=>{
+        if(isUserInteracting) {
+            lon = (onPointerDownPointerX - e.clientX) * 0.1 + onPointerDownLon;
+            lat = (e.clientY - onPointerDownPointerY) * 0.1 + onPointerDownLat;
+        }
+    });
+    container.addEventListener('mouseup', ()=>{ isUserInteracting=false; });
+    container.addEventListener('wheel', (e)=>{
+        e.preventDefault();
+        camera.fov += e.deltaY * 0.05;
+        camera.fov = Math.max(10, Math.min(100, camera.fov));
+        camera.updateProjectionMatrix();
+    });
+    
+    animate3D();
+}
+
+function animate3D() {
+    requestAnimationFrame(animate3D);
+    if(!renderer) return;
+    
+    lat = Math.max(-85, Math.min(85, lat));
+    phi = THREE.Math.degToRad(90 - lat);
+    theta = THREE.Math.degToRad(lon);
+    
+    camera.target.x = 500 * Math.sin(phi) * Math.cos(theta);
+    camera.target.y = 500 * Math.cos(phi);
+    camera.target.z = 500 * Math.sin(phi) * Math.sin(theta);
+    camera.lookAt(camera.target);
+    
+    if (sphereMesh.material.map && (isVideoPlaying || isDragging || isExportingFrames || needsRender)) {
+        sphereMesh.material.map.needsUpdate = true;
+    }
+    
+    renderer.render(scene, camera);
+}
+
+// Initial placeholder
+ctxSource.fillStyle = '#333';
+ctxSource.fillRect(0,0, sourceCanvas.width, sourceCanvas.height);
+ctxSource.fillStyle = '#555';
+ctxSource.font = "20px sans-serif";
+ctxSource.fillText("No Image Loaded", 10, 30);
+
+</script>
+</body>
+</html>
