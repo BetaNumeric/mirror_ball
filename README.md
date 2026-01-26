@@ -1,4 +1,4 @@
-[***Live Demo**](betanumeric.github.io/mirror_ball/)
+[**Live Demo**](betanumeric.github.io/mirror_ball/)
 
 # **Mirror Ball Unwrapper**
 
