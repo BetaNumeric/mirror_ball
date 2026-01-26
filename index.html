@@ -14,9 +14,10 @@
     
     <style>
         body {
-            background-color: #0f172a; /* Slate-900 */
+            background-color: #0f172a;
             color: #e2e8f0;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow-x: hidden;
         }
         .canvas-container {
             position: relative;
@@ -38,38 +39,17 @@
             border-color: #6366f1;
             box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
         }
-        
-        /* Crucial: height: auto ensures aspect ratio is preserved */
         canvas {
             display: block;
             width: 100% !important;
             height: auto !important; 
         }
-        
-        input[type="range"] {
-            accent-color: #6366f1;
-        }
-        
-        /* Hide number input arrows */
+        input[type="range"] { accent-color: #6366f1; }
         input[type=number]::-webkit-inner-spin-button, 
-        input[type=number]::-webkit-outer-spin-button { 
-            -webkit-appearance: none; 
-            margin: 0; 
-        }
-        input[type=number] {
-            -moz-appearance: textfield;
-        }
-
-        /* Pure CSS Toggle */
-        .toggle-checkbox:checked {
-            right: 0;
-            border-color: #10b981;
-        }
-        .toggle-checkbox:checked + .toggle-label {
-            background-color: #10b981;
-        }
-        
-        /* Toast Notification */
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .toggle-checkbox:checked { right: 0; border-color: #10b981; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #10b981; }
         #toastContainer {
             position: fixed;
             bottom: 20px;
@@ -99,7 +79,6 @@
 <body class="min-h-screen flex flex-col items-center py-8 px-4">
 
     <div class="w-full max-w-6xl space-y-6">
-        
         <!-- Header -->
         <div class="border-b border-gray-800 pb-4 mb-6">
             <h1 class="text-3xl font-bold text-white tracking-tight">Mirror Ball Unwrapper</h1>
@@ -107,7 +86,6 @@
 
         <!-- 1. Import & Playback Section -->
         <div class="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden shadow-lg">
-            <!-- File Input Bar -->
             <div class="p-4 border-b border-gray-700 flex items-center gap-4 bg-gray-800/80">
                 <label class="relative flex-grow md:flex-grow-0 min-w-[200px]">
                     <span class="sr-only">Choose File</span>
@@ -121,43 +99,33 @@
                         focus:outline-none
                     "/>
                 </label>
-                
                 <button id="loadExampleBtn" style="display: none;" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
                     Load Example
                 </button>
             </div>
 
-            <!-- Full Width Video Timeline (Hidden until video loaded) -->
             <div id="videoControls" class="hidden bg-gray-900/50 p-3 flex items-center gap-4 border-t border-gray-800 h-16">
                 <button id="playPauseBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full p-2 w-10 h-10 flex items-center justify-center transition flex-shrink-0 shadow-md">
                     <svg id="iconPlay" class="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"/></svg>
                     <svg id="iconPause" class="hidden w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M5 4h3v12H5V4zm7 0h3v12h-3V4z"/></svg>
                 </button>
-                
                 <span id="timeCurrent" class="text-xs font-mono text-gray-400 min-w-[40px] text-center">0:00</span>
-                
                 <div class="flex-grow flex items-center h-full">
                     <input type="range" id="videoSeek" min="0" max="100" value="0" step="0.1" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                 </div>
-                
                 <span id="timeTotal" class="text-xs font-mono text-gray-400 min-w-[40px] text-center">0:00</span>
             </div>
         </div>
 
         <!-- 2. Workspace Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            
-            <!-- Source Panel -->
             <div class="space-y-2 relative">
                 <div class="flex justify-between items-center px-1 relative z-20">
                     <div class="flex items-center gap-2">
                         <h2 class="text-sm font-bold text-indigo-400 uppercase tracking-wide">1. Align Source</h2>
-                        
-                        <!-- Auto Detect Button -->
                         <button id="autoDetectBtn" class="bg-indigo-900/50 hover:bg-indigo-600 text-indigo-300 hover:text-white text-[10px] px-2 py-0.5 rounded border border-indigo-700/50 transition-colors uppercase font-bold tracking-wide shadow-sm flex items-center gap-1">
                             <span>Auto Detect</span>
                         </button>
-                        <!-- Config Toggle -->
                         <button id="toggleDetectConfig" class="text-gray-500 hover:text-indigo-400 transition-colors">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" /></svg>
                         </button>
@@ -165,7 +133,6 @@
                     <p class="text-[10px] text-gray-500 uppercase">Scroll to Zoom • Drag Ring</p>
                 </div>
 
-                <!-- Auto Detect Settings Popover -->
                 <div id="detectConfigPanel" class="hidden absolute top-8 left-0 z-30 bg-gray-800 border border-gray-600 rounded-lg shadow-2xl p-3 w-64 text-xs">
                     <h4 class="font-bold text-gray-300 mb-2 border-b border-gray-700 pb-1">Detection Settings</h4>
                     <div class="space-y-3">
@@ -202,27 +169,21 @@
                 </div>
             </div>
 
-            <!-- Result Panel -->
             <div class="space-y-2">
                 <div class="flex justify-between items-center px-1">
                     <h2 class="text-sm font-bold text-emerald-500 uppercase tracking-wide">2. Result</h2>
                     <p class="text-[10px] text-gray-500 uppercase font-mono" id="resInfo">0 x 0 px</p>
                 </div>
-                <div class="canvas-container min-h-[200px] flex items-center justify-center bg-gray-900" id="destContainer">
-                    <!-- WebGL Canvas -->
-                </div>
+                <div class="canvas-container min-h-[200px] flex items-center justify-center bg-gray-900" id="destContainer"></div>
             </div>
         </div>
 
         <!-- 3. Adjustments & Preview -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            <!-- Controls -->
             <div class="lg:col-span-2 bg-gray-800 p-5 rounded-xl border border-gray-700 space-y-6 shadow-lg">
                 <div>
                     <h3 class="text-sm font-bold text-gray-300 border-b border-gray-700 pb-2 mb-4">Geometry</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- FOV -->
                         <div>
                             <div class="flex justify-between mb-1.5">
                                 <label class="text-xs font-semibold text-gray-400">Coverage Angle</label>
@@ -230,8 +191,6 @@
                             </div>
                             <input type="range" id="fovSlider" min="180" max="360" value="360" step="1" class="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer">
                         </div>
-                        
-                        <!-- Hole Option -->
                         <div class="flex items-center justify-between h-full pt-1">
                             <label class="text-xs font-semibold text-gray-400">Fill Blind Spot</label>
                             <div class="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
@@ -270,7 +229,6 @@
                 </div>
             </div>
 
-            <!-- 3D Preview Panel -->
             <div id="viewerSection" class="hidden lg:block bg-black rounded-xl border border-gray-700 overflow-hidden relative h-full min-h-[250px] shadow-lg">
                  <div class="absolute top-3 left-3 z-10 bg-black/60 px-2 py-1 rounded text-[10px] font-bold text-white uppercase backdrop-blur-sm pointer-events-none border border-white/10">360° Preview</div>
                 <div id="threeContainer" class="w-full h-full cursor-move"></div>
@@ -285,18 +243,15 @@
             </div>
             
             <div class="flex flex-col md:flex-row gap-4 items-center w-full md:w-auto">
-                <!-- Settings Group -->
                 <div class="flex items-center gap-4 bg-gray-900/50 px-4 py-2 rounded-lg border border-gray-700">
                     <div class="flex flex-col">
                         <label for="widthInput" class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Width (px)</label>
                         <input type="number" id="widthInput" value="2048" step="128" class="w-20 bg-transparent text-white text-sm focus:outline-none border-b border-transparent focus:border-indigo-500 transition-colors placeholder-gray-600">
                     </div>
-
                     <div id="fpsControl" class="hidden flex flex-col border-l border-gray-700 pl-4">
                         <label for="fpsInput" class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">FPS</label>
                         <input type="number" id="fpsInput" value="25" class="w-12 bg-transparent text-white text-sm focus:outline-none border-b border-transparent focus:border-indigo-500 transition-colors">
                     </div>
-
                     <div class="flex flex-col border-l border-gray-700 pl-4">
                         <label for="formatSelect" class="text-[10px] text-gray-400 uppercase font-bold tracking-wider mb-0.5">Format</label>
                         <select id="formatSelect" class="bg-transparent text-white text-sm focus:outline-none cursor-pointer -ml-1">
@@ -306,7 +261,6 @@
                     </div>
                 </div>
 
-                <!-- Action Buttons -->
                 <div class="flex gap-3">
                     <button id="exportFramesBtn" style="display:none" class="flex items-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors shadow-lg whitespace-nowrap">
                         <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
@@ -320,7 +274,6 @@
             </div>
         </div>
         
-        <!-- Progress Bar -->
         <div id="exportProgressContainer" class="w-full bg-gray-800 rounded-lg p-3 border border-gray-700 shadow-lg hidden">
             <div class="flex justify-between text-xs text-gray-400 mb-1 font-mono">
                 <span id="exportStatusText">Initializing...</span>
@@ -330,21 +283,17 @@
                 <div id="exportProgressBar" class="h-full bg-indigo-500 transition-all duration-75" style="width: 0%"></div>
             </div>
         </div>
-
     </div>
 
-    <!-- Hidden Video Element -->
     <video id="sourceVideoHidden" class="hidden" playsinline loop muted crossorigin="anonymous"></video>
-
-    <!-- Toast Container -->
     <div id="toastContainer"></div>
 
 <script>
 /**
  * --- GLOBAL VARIABLES ---
  */
-let scene, camera, renderer, sphereMesh; // 3D Preview
-let procScene, procCamera, procRenderer, procMaterial, procTexture, procCanvas; // WebGL Processor
+let scene, camera, renderer, sphereMesh; 
+let procScene, procCamera, procRenderer, procMaterial, procTexture, procCanvas; 
 
 const _euler = new THREE.Euler();
 const _mat4 = new THREE.Matrix4();
@@ -370,6 +319,57 @@ let isDragging = false;
 let isPanning = false;
 let dragMode = null; 
 let lastMouse = { x: 0, y: 0 };
+
+/**
+ * --- DOM ELEMENTS ---
+ */
+const fileInput = document.getElementById('fileInput');
+const downloadBtn = document.getElementById('downloadBtn');
+const exportFramesBtn = document.getElementById('exportFramesBtn');
+const loadExampleBtn = document.getElementById('loadExampleBtn');
+const fpsControl = document.getElementById('fpsControl');
+const fpsInput = document.getElementById('fpsInput');
+const widthInput = document.getElementById('widthInput');
+const formatSelect = document.getElementById('formatSelect');
+const exportProgressContainer = document.getElementById('exportProgressContainer');
+const exportStatusText = document.getElementById('exportStatusText');
+const exportPercentText = document.getElementById('exportPercentText');
+const exportProgressBar = document.getElementById('exportProgressBar');
+const sourceContainer = document.getElementById('sourceContainer');
+const sourceCanvas = document.getElementById('sourceCanvas');
+const ctxSource = sourceCanvas.getContext('2d');
+const emptyState = document.getElementById('emptyState');
+const resInfo = document.getElementById('resInfo');
+const viewerSection = document.getElementById('viewerSection');
+const threeContainer = document.getElementById('threeContainer');
+const destContainer = document.getElementById('destContainer');
+const videoControls = document.getElementById('videoControls');
+const playPauseBtn = document.getElementById('playPauseBtn');
+const iconPlay = document.getElementById('iconPlay');
+const iconPause = document.getElementById('iconPause');
+const videoSeek = document.getElementById('videoSeek');
+const timeCurrent = document.getElementById('timeCurrent');
+const timeTotal = document.getElementById('timeTotal');
+const sourceVideoHidden = document.getElementById('sourceVideoHidden');
+const toastContainer = document.getElementById('toastContainer');
+const autoDetectBtn = document.getElementById('autoDetectBtn');
+const toggleDetectConfig = document.getElementById('toggleDetectConfig');
+const detectConfigPanel = document.getElementById('detectConfigPanel');
+const inpSensitivity = document.getElementById('inpSensitivity');
+const valSensitivity = document.getElementById('valSensitivity');
+const inpBias = document.getElementById('inpBias');
+const valBias = document.getElementById('valBias');
+const inpMinRad = document.getElementById('inpMinRad');
+const valMinRad = document.getElementById('valMinRad');
+const fovSlider = document.getElementById('fovSlider');
+const fovValue = document.getElementById('fovValue');
+const showSourceToggle = document.getElementById('showSourceToggle');
+const pitchSlider = document.getElementById('pitchSlider');
+const pitchValue = document.getElementById('pitchValue');
+const yawSlider = document.getElementById('yawSlider');
+const yawValue = document.getElementById('yawValue');
+const rollSlider = document.getElementById('rollSlider');
+const rollValue = document.getElementById('rollValue');
 
 /**
  * --- UTILS ---
@@ -404,175 +404,60 @@ function showToast(message, type = 'info') {
 }
 
 function formatTime(seconds) {
+    if (isNaN(seconds)) return "0:00";
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 /**
- * --- DOM ELEMENTS ---
+ * --- INITIALIZATION ---
  */
-const fileInput = document.getElementById('fileInput');
-// fileInfo removed from HTML, variable removed
-const downloadBtn = document.getElementById('downloadBtn');
-const exportFramesBtn = document.getElementById('exportFramesBtn');
-const loadExampleBtn = document.getElementById('loadExampleBtn');
-const fpsControl = document.getElementById('fpsControl');
-const fpsInput = document.getElementById('fpsInput');
-const widthInput = document.getElementById('widthInput');
-const formatSelect = document.getElementById('formatSelect');
-const exportProgressContainer = document.getElementById('exportProgressContainer');
-const exportStatusText = document.getElementById('exportStatusText');
-const exportPercentText = document.getElementById('exportPercentText');
-const exportProgressBar = document.getElementById('exportProgressBar');
+initProcessor();
 
-const sourceContainer = document.getElementById('sourceContainer');
-const sourceCanvas = document.getElementById('sourceCanvas');
-const ctxSource = sourceCanvas.getContext('2d');
-const emptyState = document.getElementById('emptyState');
-const resInfo = document.getElementById('resInfo');
-const viewerSection = document.getElementById('viewerSection');
-const threeContainer = document.getElementById('threeContainer');
-const destContainer = document.getElementById('destContainer');
-
-const videoControls = document.getElementById('videoControls');
-const playPauseBtn = document.getElementById('playPauseBtn');
-const iconPlay = document.getElementById('iconPlay');
-const iconPause = document.getElementById('iconPause');
-const videoSeek = document.getElementById('videoSeek');
-const timeCurrent = document.getElementById('timeCurrent');
-const timeTotal = document.getElementById('timeTotal');
-const sourceVideoHidden = document.getElementById('sourceVideoHidden');
-const toastContainer = document.getElementById('toastContainer');
-
-const autoDetectBtn = document.getElementById('autoDetectBtn');
-const toggleDetectConfig = document.getElementById('toggleDetectConfig');
-const detectConfigPanel = document.getElementById('detectConfigPanel');
-const inpSensitivity = document.getElementById('inpSensitivity');
-const valSensitivity = document.getElementById('valSensitivity');
-const inpBias = document.getElementById('inpBias');
-const valBias = document.getElementById('valBias');
-const inpMinRad = document.getElementById('inpMinRad');
-const valMinRad = document.getElementById('valMinRad');
-
-const fovSlider = document.getElementById('fovSlider');
-const fovValue = document.getElementById('fovValue');
-const showSourceToggle = document.getElementById('showSourceToggle');
-const pitchSlider = document.getElementById('pitchSlider');
-const pitchValue = document.getElementById('pitchValue');
-const yawSlider = document.getElementById('yawSlider');
-const yawValue = document.getElementById('yawValue');
-const rollSlider = document.getElementById('rollSlider');
-const rollValue = document.getElementById('rollValue');
-
-
-/**
- * --- INITIALIZATION & EVENTS ---
- */
-// Check for example file existence
-fetch('example/example.jpg', { method: 'HEAD' })
-    .then(res => {
-        if (res.ok) {
-            loadExampleBtn.style.display = 'inline-block';
-        }
-    })
-    .catch(() => { /* Ignore error, button stays hidden */ });
-
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) {
-        handleFileSelect(e.target.files[0]);
+// Window Resize for 3D View
+window.addEventListener('resize', () => {
+    if (renderer && camera) {
+        const container = threeContainer;
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
     }
 });
 
-// Drag and Drop
-sourceContainer.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    sourceContainer.classList.add('drag-over');
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files[0]) handleFileSelect(e.target.files[0]);
 });
-sourceContainer.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    sourceContainer.classList.remove('drag-over');
-});
+
+sourceContainer.addEventListener('dragover', (e) => { e.preventDefault(); sourceContainer.classList.add('drag-over'); });
+sourceContainer.addEventListener('dragleave', (e) => { e.preventDefault(); sourceContainer.classList.remove('drag-over'); });
 sourceContainer.addEventListener('drop', (e) => {
     e.preventDefault();
     sourceContainer.classList.remove('drag-over');
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-        handleFileSelect(e.dataTransfer.files[0]);
-    }
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
 });
 
-// Click Empty State to Upload
-sourceContainer.addEventListener('click', (e) => {
-    if (!sourceMedia) {
-        fileInput.click();
-    }
-});
+sourceContainer.addEventListener('click', (e) => { if (!sourceMedia) fileInput.click(); });
 
-// Load Example
-loadExampleBtn.addEventListener('click', async () => {
-    showToast("Loading example...", "info");
-    try {
-        const response = await fetch('example/example.jpg');
-        if (!response.ok) throw new Error("Example file not found");
-        const blob = await response.blob();
-        const file = new File([blob], "example.jpg", { type: "image/jpeg" });
-        handleFileSelect(file);
-    } catch (err) {
-        showToast("Example file not found.", "error");
-        console.warn(err);
-    }
-});
-
-// Init WebGL Processor once
-initProcessor();
-
-// Handle Context Lost
-if (procRenderer && procRenderer.domElement) {
-    procRenderer.domElement.addEventListener('webglcontextlost', (e) => {
-        e.preventDefault();
-        showToast("GPU Context Lost. Reload page.", "error");
-    }, false);
-    procRenderer.domElement.addEventListener('webglcontextrestored', () => {
-        if (sourceMedia) {
-            needsRender = true;
-            updateProcessorParams();
-        }
-    }, false);
-}
-
-// Video Controls
 playPauseBtn.addEventListener('click', toggleVideoPlayback);
 videoSeek.addEventListener('input', () => {
     if (isVideo && sourceMedia) {
-        const time = sourceMedia.duration * (videoSeek.value / 100);
-        sourceMedia.currentTime = time;
+        sourceMedia.currentTime = sourceMedia.duration * (videoSeek.value / 100);
         needsRender = true;
     }
 });
 
 exportFramesBtn.addEventListener('click', startFrameExport);
 autoDetectBtn.addEventListener('click', runAutoDetect);
-
-// Settings Toggles
-toggleDetectConfig.addEventListener('click', (e) => {
-    e.stopPropagation();
-    detectConfigPanel.classList.toggle('hidden');
-});
+toggleDetectConfig.addEventListener('click', (e) => { e.stopPropagation(); detectConfigPanel.classList.toggle('hidden'); });
 window.addEventListener('click', (e) => {
-    if (detectConfigPanel && !detectConfigPanel.contains(e.target) && e.target !== toggleDetectConfig) {
-        detectConfigPanel.classList.add('hidden');
-    }
+    if (detectConfigPanel && !detectConfigPanel.contains(e.target) && e.target !== toggleDetectConfig) detectConfigPanel.classList.add('hidden');
 });
 
-// Detection Settings Live Update Labels
 inpSensitivity.addEventListener('input', () => { valSensitivity.innerText = `${inpSensitivity.value}%`; });
-inpBias.addEventListener('input', () => { 
-    valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; 
-});
+inpBias.addEventListener('input', () => { valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
 inpMinRad.addEventListener('input', () => { valMinRad.innerText = `${inpMinRad.value}%`; });
 
-
-// Controls
 const updateParams = () => {
     updateProcessorParams();
     updateUIValues();
@@ -593,11 +478,11 @@ rollSlider.addEventListener('input', updateParams);
 widthInput.addEventListener('change', updateParams); 
 showSourceToggle.addEventListener('change', updateParams);
 
-// Canvas Interactions
 sourceCanvas.addEventListener('mousedown', onMouseDown);
 sourceCanvas.addEventListener('mousemove', onMouseMove);
 window.addEventListener('mouseup', onMouseUp);
 sourceCanvas.addEventListener('wheel', onWheel, { passive: false });
+
 sourceCanvas.addEventListener('touchstart', (e) => {
     const touch = e.touches[0];
     onMouseDown({ clientX: touch.clientX, clientY: touch.clientY, target: sourceCanvas, preventDefault: () => e.preventDefault() });
@@ -614,18 +499,15 @@ downloadBtn.addEventListener('click', () => {
     renderProcessor(); 
     const link = document.createElement('a');
     link.download = 'equirectangular-map.png';
-    link.href = procCanvas.toDataURL();
+    link.href = procCanvas.toDataURL('image/png');
     link.click();
 });
-
 
 /**
  * --- CORE FUNCTIONS ---
  */
-
 function handleFileSelect(file) {
     if (!file) return;
-
     const isVideoFile = file.type.startsWith('video/');
 
     if (isVideoFile) {
@@ -634,17 +516,11 @@ function handleFileSelect(file) {
         sourceVideoHidden.src = url;
         sourceMedia = sourceVideoHidden;
         sourceVideoHidden.muted = true;
-        
-        sourceVideoHidden.onerror = () => {
-            showToast("Error loading video.", "error");
-        };
-
         sourceVideoHidden.onloadeddata = () => {
             sourceVideoHidden.currentTime = 0.001;
             timeTotal.innerText = formatTime(sourceVideoHidden.duration);
         };
-
-        sourceVideoHidden.onseeked = () => {
+        sourceVideoHidden.onseeked = function onSeekedOnce() {
             sourceVideoHidden.onseeked = null;
             initWorkspace();
             videoControls.classList.remove('hidden');
@@ -657,15 +533,12 @@ function handleFileSelect(file) {
         videoControls.classList.add('hidden');
         fpsControl.classList.add('hidden');
         exportFramesBtn.style.display = 'none';
-        
         const reader = new FileReader();
-        reader.onload = function(event) {
-            sourceMedia = new Image();
-            sourceMedia.onload = function() {
-                initWorkspace();
-            }
-            sourceMedia.src = event.target.result;
-        }
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => { sourceMedia = img; initWorkspace(); };
+            img.src = e.target.result;
+        };
         reader.readAsDataURL(file);
     }
 }
@@ -676,394 +549,213 @@ function initWorkspace() {
     
     const w = isVideo ? sourceMedia.videoWidth : sourceMedia.width;
     const h = isVideo ? sourceMedia.videoHeight : sourceMedia.height;
-    
     sourceCanvas.width = w;
     sourceCanvas.height = h;
     
     viewScale = 1;
     viewOffset = { x: 0, y: 0 };
-    ball.x = w / 2;
-    ball.y = h / 2;
-    ball.r = Math.min(w, h) * 0.4;
+    ball.x = w / 2; ball.y = h / 2; ball.r = Math.min(w, h) * 0.4;
     
-    let optimalW = Math.floor(ball.r * 2 * Math.PI);
-    if(optimalW > 4096) optimalW = 4096;
+    let optimalW = Math.min(4096, Math.floor(ball.r * 2 * Math.PI));
     widthInput.value = optimalW;
 
-    // Texture Setup
     if (procTexture) procTexture.dispose();
     procTexture = new THREE.Texture(sourceMedia);
     procTexture.minFilter = THREE.LinearFilter;
     procTexture.magFilter = THREE.LinearFilter;
     procTexture.generateMipmaps = false;
-    
     procTexture.needsUpdate = true;
     
     procMaterial.uniforms.tDiffuse.value = procTexture;
     procMaterial.uniforms.uResolution.value.set(w, h);
 
     needsRender = true;
-    drawUI();
     updateProcessorParams();
-    renderProcessor();
     initOrUpdate3D(); 
     
     resInfo.innerText = `${optimalW} x ${Math.floor(optimalW/2)} px`;
     downloadBtn.style.display = isVideo ? 'none' : 'flex';
     
-    // Force Image Update loop for static images
     if (!isVideo) {
-        const forceUpdate = (count) => {
-            if(count > 0) {
-                if(procTexture) procTexture.needsUpdate = true;
-                renderProcessor();
-                needsRender = true; // Trigger 3D view update
-                requestAnimationFrame(() => forceUpdate(count - 1));
-            }
-        };
-        forceUpdate(10); 
+        setTimeout(() => { needsRender = true; drawUI(); }, 100);
     }
     
-    requestAnimationFrame(animationLoop);
+    // Start main single loop if not started
+    if (!window.loopId) animate();
 }
 
-// Main Render Loop
-function animationLoop() {
-    requestAnimationFrame(animationLoop);
-    
+function animate() {
+    window.loopId = requestAnimationFrame(animate);
     if (!sourceMedia) return;
 
-    let shouldRender = needsRender;
+    let forceUpdate = needsRender;
 
-    // UI Updates
-    if (isVideo && !isExportingFrames) {
-        if (!sourceVideoHidden.paused) {
-            if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
-                procTexture.needsUpdate = true;
-                shouldRender = true;
-            }
-            const cur = sourceMedia.currentTime;
-            const pct = (cur / sourceMedia.duration) * 100;
-            videoSeek.value = isNaN(pct) ? 0 : pct;
-            timeCurrent.innerText = formatTime(cur);
-            drawUI(); 
+    if (isVideo && !isExportingFrames && !sourceVideoHidden.paused) {
+        if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
+            procTexture.needsUpdate = true;
+            forceUpdate = true;
         }
+        const cur = sourceMedia.currentTime;
+        videoSeek.value = (cur / sourceMedia.duration) * 100;
+        timeCurrent.innerText = formatTime(cur);
     }
 
-    // Only render loop if NOT exporting
-    if (!isExportingFrames && shouldRender) {
+    if (forceUpdate) {
         renderProcessor();
-        // Force update map for 3D view every frame for reliability
-        if (sphereMesh && sphereMesh.material.map) {
-            sphereMesh.material.map.needsUpdate = true;
-        }
+        drawUI();
         needsRender = false;
+    }
+
+    if (renderer && scene && camera) {
+        render3D();
     }
 }
 
 /**
- * --- AUTO DETECT ALGORITHM ---
+ * --- AUTO DETECT ---
  */
 function runAutoDetect() {
     if (!sourceMedia) return;
-    
     showToast("Analyzing image...", "info");
     
-    // Config from UI
     const sensPct = parseInt(inpSensitivity.value) / 100; 
     const biasPct = parseInt(inpBias.value) / 100;
     const minRadPct = parseInt(inpMinRad.value) / 100;
     
     const w = sourceCanvas.width;
     const h = sourceCanvas.height;
-    
     const scale = 320 / Math.max(w, h);
-    const smallW = Math.floor(w * scale);
-    const smallH = Math.floor(h * scale);
+    const sw = Math.floor(w * scale), sh = Math.floor(h * scale);
     
-    const smallCanvas = document.createElement('canvas');
-    smallCanvas.width = smallW;
-    smallCanvas.height = smallH;
-    const sCtx = smallCanvas.getContext('2d');
+    const sc = document.createElement('canvas');
+    sc.width = sw; sc.height = sh;
+    const sCtx = sc.getContext('2d');
+    sCtx.drawImage(sourceMedia, 0, 0, sw, sh);
+    const data = sCtx.getImageData(0, 0, sw, sh).data;
     
-    sCtx.drawImage(sourceMedia, 0, 0, smallW, smallH);
-    const imgData = sCtx.getImageData(0, 0, smallW, smallH);
-    const data = imgData.data;
+    const gray = new Float32Array(sw * sh);
+    for (let i = 0; i < sw * sh; i++) gray[i] = data[i*4]*0.3 + data[i*4+1]*0.59 + data[i*4+2]*0.11;
     
-    const gray = new Float32Array(smallW * smallH);
-    for (let i = 0; i < smallW * smallH; i++) {
-        gray[i] = data[i*4] * 0.299 + data[i*4+1] * 0.587 + data[i*4+2] * 0.114;
-    }
-    
-    const mag = new Float32Array(smallW * smallH);
-    const gx = new Float32Array(smallW * smallH);
-    const gy = new Float32Array(smallW * smallH);
+    const mag = new Float32Array(sw * sh), gx = new Float32Array(sw * sh), gy = new Float32Array(sw * sh);
     let maxMag = 0;
-    
-    for (let y = 1; y < smallH - 1; y++) {
-        for (let x = 1; x < smallW - 1; x++) {
-            const i = y * smallW + x;
-            const sx = -gray[i-smallW-1] + gray[i-smallW+1] -2*gray[i-1] + 2*gray[i+1] -gray[i+smallW-1] + gray[i+smallW+1];
-            const sy = -gray[i-smallW-1] -2*gray[i-smallW] -gray[i-smallW+1] +gray[i+smallW-1] + 2*gray[i+smallW] + gray[i+smallW+1];
-            
-            gx[i] = sx;
-            gy[i] = sy;
-            const m = Math.sqrt(sx*sx + sy*sy);
-            mag[i] = m;
-            if (m > maxMag) maxMag = m;
+    for (let y = 1; y < sh - 1; y++) {
+        for (let x = 1; x < sw - 1; x++) {
+            const i = y * sw + x;
+            const sx = -gray[i-sw-1] + gray[i-sw+1] - 2*gray[i-1] + 2*gray[i+1] - gray[i+sw-1] + gray[i+sw+1];
+            const sy = -gray[i-sw-1] - 2*gray[i-sw] - gray[i-sw+1] + gray[i+sw-1] + 2*gray[i+sw] + gray[i+sw+1];
+            gx[i] = sx; gy[i] = sy; mag[i] = Math.sqrt(sx*sx + sy*sy);
+            if (mag[i] > maxMag) maxMag = mag[i];
         }
     }
     
-    const threshold = maxMag * (sensPct); 
-    const acc = new Float32Array(smallW * smallH);
-    const minR = Math.min(smallW, smallH) * minRadPct;
-    const maxR = Math.min(smallW, smallH) * 0.49; 
+    const threshold = maxMag * sensPct;
+    const acc = new Float32Array(sw * sh);
+    const minR = Math.max(5, Math.min(sw, sh) * minRadPct);
+    const maxR = Math.min(sw, sh) * 0.5;
     
-    for (let y = 2; y < smallH - 2; y++) {
-        for (let x = 2; x < smallW - 2; x++) {
-            const i = y * smallW + x;
-            if (mag[i] < threshold) continue;
-            
-            const dx = gx[i] / mag[i];
-            const dy = gy[i] / mag[i];
-            
-            for (let r = minR; r < maxR; r+=2) { 
-                let cx = Math.round(x + dx * r);
-                let cy = Math.round(y + dy * r);
-                if (cx > 0 && cx < smallW && cy > 0 && cy < smallH) acc[cy * smallW + cx]++;
-                
-                cx = Math.round(x - dx * r);
-                cy = Math.round(y - dy * r);
-                if (cx > 0 && cx < smallW && cy > 0 && cy < smallH) acc[cy * smallW + cx]++;
+    for (let i = 0; i < sw * sh; i++) {
+        if (mag[i] < threshold) continue;
+        const x = i % sw, y = Math.floor(i / sw);
+        const dx = gx[i] / mag[i], dy = gy[i] / mag[i];
+        for (let r = minR; r < maxR; r += 2) {
+            for (let s = -1; s <= 1; s += 2) {
+                const cx = Math.round(x + s * dx * r), cy = Math.round(y + s * dy * r);
+                if (cx >= 0 && cx < sw && cy >= 0 && cy < sh) acc[cy * sw + cx]++;
             }
         }
     }
     
-    let bestIdx = 0;
-    let maxVote = 0;
-    const midX = smallW/2;
-    const midY = smallH/2;
+    let bestIdx = 0, maxVote = 0;
+    for (let i = 0; i < sw * sh; i++) {
+        const x = i % sw, y = Math.floor(i / sw);
+        const weight = Math.max(0, 1.0 - (Math.sqrt((x - sw/2)**2 + (y - sh/2)**2) / (sw*0.7)) * biasPct);
+        if (acc[i] * weight > maxVote) { maxVote = acc[i] * weight; bestIdx = i; }
+    }
     
-    for (let y = 0; y < smallH; y++) {
-        for (let x = 0; x < smallW; x++) {
-            const i = y * smallW + x;
-            const distFromMid = Math.sqrt((x-midX)**2 + (y-midY)**2);
-            const weight = 1.0 - (distFromMid / (smallW*0.7)) * biasPct;
-            const weightedVote = acc[i] * (weight > 0 ? weight : 0);
-            
-            if (weightedVote > maxVote) {
-                maxVote = weightedVote;
-                bestIdx = i;
-            }
+    const cx = (bestIdx % sw) / scale, cy = Math.floor(bestIdx / sw) / scale;
+    const rHist = new Float32Array(Math.floor(Math.max(w, h)));
+    for (let i = 0; i < sw * sh; i++) {
+        if (mag[i] > threshold) {
+            const d = Math.round(Math.sqrt(((i%sw)/scale - cx)**2 + (Math.floor(i/sw)/scale - cy)**2));
+            if (d < rHist.length) rHist[d] += mag[i];
         }
     }
     
-    const centerX = bestIdx % smallW;
-    const centerY = Math.floor(bestIdx / smallW);
+    let bestR = ball.r, maxRS = 0;
+    const rStart = Math.floor(minR/scale), rEnd = Math.floor(maxR/scale);
+    for (let r = rStart; r < rEnd; r++) if (rHist[r] > maxRS) { maxRS = rHist[r]; bestR = r; }
     
-    const rHist = new Float32Array(Math.max(smallW, smallH));
-    
-    for (let y = 0; y < smallH; y++) {
-        for (let x = 0; x < smallW; x++) {
-            const i = y * smallW + x;
-            if (mag[i] > threshold) {
-                const d = Math.round(Math.sqrt((x-centerX)**2 + (y-centerY)**2));
-                if (d < rHist.length) rHist[d] += mag[i]; 
-            }
-        }
-    }
-    
-    let bestR = minR;
-    let maxRScore = 0;
-    for (let r = minR; r < maxR; r++) {
-        if (rHist[r] > maxRScore) {
-            maxRScore = rHist[r];
-            bestR = r;
-        }
-    }
-    
-    ball.x = centerX / scale;
-    ball.y = centerY / scale;
-    ball.r = bestR / scale;
-    
-    if (ball.r < 10) ball.r = 100;
-    
-    drawUI();
-    updateParams();
+    ball.x = cx; ball.y = cy; ball.r = Math.max(10, bestR);
+    needsRender = true; drawUI(); updateParams();
     showToast("Circle updated!", "success");
-    detectConfigPanel.classList.add('hidden'); 
+    detectConfigPanel.classList.add('hidden');
 }
 
 /**
- * --- VIDEO CONTROL FUNCTION ---
+ * --- VIDEO & EXPORT ---
  */
 function toggleVideoPlayback() {
-    if (!isVideo || !sourceMedia) return;
-    
+    if (!sourceMedia) return;
     if (sourceMedia.paused) {
-        sourceMedia.play();
-        isVideoPlaying = true;
-        if(iconPlay) iconPlay.classList.add('hidden');
-        if(iconPause) iconPause.classList.remove('hidden');
+        sourceMedia.play(); isVideoPlaying = true;
+        iconPlay.classList.add('hidden'); iconPause.classList.remove('hidden');
     } else {
-        sourceMedia.pause();
-        isVideoPlaying = false;
-        if(iconPlay) iconPlay.classList.remove('hidden');
-        if(iconPause) iconPause.classList.add('hidden');
+        sourceMedia.pause(); isVideoPlaying = false;
+        iconPlay.classList.remove('hidden'); iconPause.classList.add('hidden');
         needsRender = true;
     }
 }
 
-/**
- * --- FRAME EXPORT LOGIC (ZIP) ---
- */
 async function startFrameExport() {
-    if (!isVideo || !sourceMedia) return;
-    if (isExportingFrames) return; 
-
-    isExportingFrames = true;
-    sourceVideoHidden.pause();
+    if (!isVideo || !sourceMedia || isExportingFrames) return; 
+    isExportingFrames = true; sourceMedia.pause();
     
-    if (isVideoPlaying) {
-        isVideoPlaying = false;
-        if(iconPlay) iconPlay.classList.remove('hidden');
-        if(iconPause) iconPause.classList.add('hidden');
-    }
-    
-    const fps = parseInt(fpsInput.value) || 25;
-    const interval = 1.0 / fps;
-    const duration = sourceMedia.duration;
-    
-    // Format Selection
-    const format = formatSelect.value; 
-    const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const ext = format === 'jpg' ? 'jpg' : 'png';
-    
+    const fps = parseInt(fpsInput.value) || 25, interval = 1.0 / fps, duration = sourceMedia.duration;
+    const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
     const width = parseInt(widthInput.value) || 2048;
     
-    let framesPerZip;
-    if (format === 'jpg') {
-        if (width > 3000) framesPerZip = 100; 
-        else if (width > 1500) framesPerZip = 500; 
-        else framesPerZip = 1000;
-    } else {
-        if (width > 3000) framesPerZip = 30; 
-        else if (width > 1500) framesPerZip = 100; 
-        else framesPerZip = 300;
-    }
-    
-    exportFramesBtn.disabled = true;
-    exportFramesBtn.innerText = "Stop Export";
-    exportFramesBtn.onclick = () => { isExportingFrames = false; }; 
+    exportFramesBtn.disabled = true; exportFramesBtn.innerText = "Exporting...";
     exportProgressContainer.classList.remove('hidden');
-    fileInput.disabled = true;
-    videoControls.classList.add('opacity-50', 'pointer-events-none');
 
-    let currentTime = 0;
-    let frameCount = 0;
-    const totalFramesEstimate = Math.ceil(duration * fps);
-    let zipPart = 1;
-
-    let zip = new JSZip();
-    let framesFolder = zip.folder("frames");
-    let framesInCurrentZip = 0;
-
-    procTexture.image = sourceVideoHidden; 
-    procTexture.needsUpdate = true;
-    
-    const seekTo = (time) => {
-        return new Promise((resolve) => {
-            const onSeek = () => {
-                sourceVideoHidden.removeEventListener('seeked', onSeek);
-                resolve();
-            };
-            sourceVideoHidden.addEventListener('seeked', onSeek);
-            sourceVideoHidden.currentTime = time;
-        });
-    };
+    let currentTime = 0, frameCount = 0, zip = new JSZip(), folder = zip.folder("frames");
+    const total = Math.ceil(duration * fps);
 
     try {
         while (currentTime < duration && isExportingFrames) {
-            await seekTo(currentTime);
+            sourceMedia.currentTime = currentTime;
+            await new Promise(r => sourceMedia.onseeked = r);
             procTexture.needsUpdate = true;
             renderProcessor();
             
-            const quality = format === 'jpg' ? 0.9 : undefined;
-            const blob = await new Promise(resolve => procCanvas.toBlob(resolve, mimeType, quality));
+            const blob = await new Promise(r => procCanvas.toBlob(r, mime, format === 'jpg' ? 0.9 : undefined));
+            folder.file(`frame_${String(frameCount++).padStart(5, '0')}.${format}`, blob);
             
-            const filename = `frame_${String(frameCount).padStart(5, '0')}.${ext}`;
-            framesFolder.file(filename, blob);
-            framesInCurrentZip++;
-            
-            if (framesInCurrentZip >= framesPerZip) {
-                exportStatusText.innerText = `Saving Part ${zipPart}...`;
-                const content = await zip.generateAsync({type:"blob"});
-                saveAs(content, `equirectangular_frames_part${zipPart}.zip`);
-                zip = new JSZip();
-                framesFolder = zip.folder("frames");
-                framesInCurrentZip = 0;
-                zipPart++;
-            }
-            
-            frameCount++;
-            const pct = Math.min(100, Math.round((currentTime / duration) * 100));
+            const pct = Math.floor((currentTime / duration) * 100);
             exportProgressBar.style.width = `${pct}%`;
             exportPercentText.innerText = `${pct}%`;
-            exportStatusText.innerText = `Processing Frame ${frameCount} / ${totalFramesEstimate}`;
-            
+            exportStatusText.innerText = `Frame ${frameCount} / ${total}`;
             currentTime += interval;
-            await new Promise(r => setTimeout(r, 0));
         }
-        
-        if (framesInCurrentZip > 0 && isExportingFrames) {
-            exportStatusText.innerText = `Saving Final Part ${zipPart}...`;
-            const content = await zip.generateAsync({type:"blob"});
-            saveAs(content, `equirectangular_frames_part${zipPart}.zip`);
-        }
-        
-        if (isExportingFrames) {
-            showToast("Export Complete!", "success");
-        } else {
-            showToast("Export Cancelled.", "info");
-        }
-
-    } catch (err) {
-        console.error(err);
-        showToast("Export Failed. See console.", "error");
-    } finally {
-        isExportingFrames = false;
-        exportFramesBtn.disabled = false;
-        exportFramesBtn.innerText = "Export Frames (ZIP)";
-        exportFramesBtn.onclick = startFrameExport; 
+        if (isExportingFrames) saveAs(await zip.generateAsync({type:"blob"}), "equirectangular_sequence.zip");
+    } catch (e) { showToast("Export Error", "error"); }
+    finally {
+        isExportingFrames = false; exportFramesBtn.disabled = false; exportFramesBtn.innerText = "Export Sequence (ZIP)";
         exportProgressContainer.classList.add('hidden');
-        fileInput.disabled = false;
-        videoControls.classList.remove('opacity-50', 'pointer-events-none');
-        sourceVideoHidden.currentTime = 0;
     }
 }
 
-
 /**
- * --- WEBGL PROCESSOR ---
+ * --- PROCESSOR ---
  */
 function initProcessor() {
     procRenderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
-    
-    const gl = procRenderer.getContext();
-    maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-    
-    procRenderer.setSize(1024, 512, false); 
+    maxTextureSize = procRenderer.getContext().getParameter(procRenderer.getContext().MAX_TEXTURE_SIZE);
+    procRenderer.setSize(1024, 512, false);
     procCanvas = procRenderer.domElement;
-    destContainer.innerHTML = "";
     destContainer.appendChild(procCanvas);
-    
-    procCanvas.style.width = "100%";
-    procCanvas.style.height = "auto";
 
     procScene = new THREE.Scene();
     procCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    
-    const geometry = new THREE.PlaneBufferGeometry(2, 2);
     
     const fragmentShader = `
         uniform sampler2D tDiffuse;
@@ -1072,368 +764,165 @@ function initProcessor() {
         uniform float uFov;
         uniform bool uShowSource; 
         uniform mat3 uRotation;
-        
         varying vec2 vUv;
-
         #define PI 3.14159265359
-
         void main() {
             float theta = (1.0 - vUv.y) * PI - (PI / 2.0);
             float phi = vUv.x * 2.0 * PI - PI;
-
-            float cosTheta = cos(theta);
-            vec3 dir;
-            dir.x = cosTheta * sin(phi);
-            dir.y = sin(theta);
-            dir.z = cosTheta * cos(phi);
-
-            dir = uRotation * dir;
-
+            vec3 dir = uRotation * vec3(cos(theta) * sin(phi), sin(theta), cos(theta) * cos(phi));
             float m = 2.0 * sqrt(dir.x*dir.x + dir.y*dir.y + (dir.z + 1.0)*(dir.z + 1.0));
-            
-            vec2 srcPos;
-            bool isHole = false;
-
-            float maxHalfAngle = uFov / 2.0;
-            float scaleFactor = 1.0 / sin(maxHalfAngle / 2.0);
-
-            if (m == 0.0) {
-                isHole = true;
-            } else {
-                vec2 rUV = vec2(dir.x / m, dir.y / m);
-                rUV *= scaleFactor;
-
-                float distSq = dot(rUV, rUV);
-                if (distSq > 0.25001) {
-                    isHole = true;
-                }
-
-                vec2 pixelOffset = vec2(rUV.x, rUV.y) * 2.0 * uBall.z;
-                pixelOffset.y = -pixelOffset.y; 
-
-                vec2 pixelPos = uBall.xy + pixelOffset;
-                srcPos = pixelPos / uResolution;
-            }
-
+            float scaleFactor = 1.0 / sin(uFov / 4.0);
+            vec2 rUV = (dir.xy / m) * scaleFactor;
+            bool isHole = (m == 0.0 || dot(rUV, rUV) > 0.25001);
             if (isHole) {
                 if (uShowSource) {
-                    float angleBack = acos(clamp(-dir.z, -1.0, 1.0));
-                    float holeRadiusAngle = PI - maxHalfAngle;
-                    
+                    float holeRadiusAngle = PI - uFov/2.0;
                     if (holeRadiusAngle > 0.001) {
-                        float normDist = angleBack / holeRadiusAngle;
-                        float imgR = normDist * 0.5;
-                        float imgTheta = atan(dir.y, dir.x);
-                        
-                        vec2 stickerOffset = vec2(cos(imgTheta), -sin(imgTheta)) * imgR * 2.0 * uBall.z;
-                        srcPos = (uBall.xy + stickerOffset) / uResolution;
-                        gl_FragColor = texture2D(tDiffuse, srcPos); 
-                    } else {
-                        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                    }
-                } else {
-                    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-                }
+                        float imgR = acos(clamp(-dir.z, -1.0, 1.0)) / holeRadiusAngle * 0.5;
+                        float ang = atan(dir.y, dir.x);
+                        gl_FragColor = texture2D(tDiffuse, (uBall.xy + vec2(cos(ang), -sin(ang)) * imgR * 2.0 * uBall.z) / uResolution);
+                    } else gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+                } else gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
             } else {
-                gl_FragColor = texture2D(tDiffuse, srcPos);
+                gl_FragColor = texture2D(tDiffuse, (uBall.xy + vec2(rUV.x, -rUV.y) * 2.0 * uBall.z) / uResolution);
             }
         }
     `;
-
-    const vertexShader = `
-        varying vec2 vUv;
-        void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-    `;
+    const vertexShader = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`;
 
     procMaterial = new THREE.ShaderMaterial({
         uniforms: {
-            tDiffuse: { value: null },
-            uResolution: { value: new THREE.Vector2(1, 1) },
-            uBall: { value: new THREE.Vector4(0, 0, 100, 1) },
-            uFov: { value: Math.PI },
-            uShowSource: { value: true },
-            uRotation: { value: new THREE.Matrix3() }
+            tDiffuse: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) },
+            uBall: { value: new THREE.Vector4(0, 0, 100, 1) }, uFov: { value: Math.PI },
+            uShowSource: { value: true }, uRotation: { value: new THREE.Matrix3() }
         },
-        vertexShader: vertexShader,
-        fragmentShader: fragmentShader,
-        side: THREE.DoubleSide
+        vertexShader, fragmentShader
     });
-
-    const plane = new THREE.Mesh(geometry, procMaterial);
-    procScene.add(plane);
+    procScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), procMaterial));
 }
 
 function updateProcessorParams() {
-    let targetW = parseInt(widthInput.value) || 2048;
-    
-    if (targetW > maxTextureSize) {
-        targetW = maxTextureSize;
-        widthInput.value = targetW;
-        showToast(`Clamped to GPU limit: ${maxTextureSize}px`, 'info');
-    }
-    
-    let targetH = Math.floor(targetW / 2);
-    
-    if (procCanvas.width !== targetW || procCanvas.height !== targetH) {
-        procRenderer.setSize(targetW, targetH, false); 
-        procCanvas.style.width = "100%";
-        procCanvas.style.height = "auto";
-        resInfo.innerText = `${targetW} x ${targetH} px`;
-        
+    let tw = Math.min(maxTextureSize, parseInt(widthInput.value) || 2048);
+    let th = Math.floor(tw / 2);
+    if (procCanvas.width !== tw) {
+        procRenderer.setSize(tw, th, false);
+        resInfo.innerText = `${tw} x ${th} px`;
         initOrUpdate3D();
     }
-
-    const glBallY = sourceCanvas.height - ball.y;
-    procMaterial.uniforms.uBall.value.set(ball.x, glBallY, ball.r, 0);
-    
-    const deg = parseInt(fovSlider.value);
-    const rad = deg * (Math.PI / 180);
-    procMaterial.uniforms.uFov.value = rad;
-    
+    procMaterial.uniforms.uBall.value.set(ball.x, sourceCanvas.height - ball.y, ball.r, 0);
+    procMaterial.uniforms.uFov.value = parseInt(fovSlider.value) * Math.PI / 180;
     procMaterial.uniforms.uShowSource.value = showSourceToggle.checked;
-    
-    const pitch = parseFloat(pitchSlider.value) * (Math.PI / 180);
-    const yaw = parseFloat(yawSlider.value) * (Math.PI / 180);
-    const roll = parseFloat(rollSlider.value) * (Math.PI / 180);
-    
-    _euler.set(pitch, yaw, roll, 'YXZ');
-    _mat4.makeRotationFromEuler(_euler);
-    _mat3.setFromMatrix4(_mat4);
-    
+    _euler.set(parseFloat(pitchSlider.value)*Math.PI/180, parseFloat(yawSlider.value)*Math.PI/180, parseFloat(rollSlider.value)*Math.PI/180, 'YXZ');
+    _mat3.setFromMatrix4(_mat4.makeRotationFromEuler(_euler));
     procMaterial.uniforms.uRotation.value = _mat3;
 }
 
-function renderProcessor() {
-    if(procRenderer) procRenderer.render(procScene, procCamera);
-}
-
+function renderProcessor() { procRenderer.render(procScene, procCamera); }
 
 /**
- * --- UI DRAWING (CPU CANVAS) ---
+ * --- UI CANVAS ---
  */
 function drawUI() {
     if (!sourceMedia) return;
-    
     ctxSource.setTransform(1, 0, 0, 1, 0, 0);
     ctxSource.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-    
     ctxSource.translate(viewOffset.x, viewOffset.y);
     ctxSource.scale(viewScale, viewScale);
-    
     ctxSource.drawImage(sourceMedia, 0, 0);
-    
-    const lw = 3 / viewScale;
-    const hs = 12 / viewScale;
     
     ctxSource.beginPath();
     ctxSource.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
-    ctxSource.lineWidth = lw;
-    ctxSource.strokeStyle = '#ef4444';
-    ctxSource.stroke();
+    ctxSource.lineWidth = 3 / viewScale; ctxSource.strokeStyle = '#ef4444'; ctxSource.stroke();
     
     ctxSource.fillStyle = '#fff';
-    const drawH = (x,y) => {
-        ctxSource.beginPath(); ctxSource.arc(x,y,hs,0,Math.PI*2); ctxSource.fill(); ctxSource.stroke();
-    };
-    drawH(ball.x + ball.r, ball.y);
-    drawH(ball.x - ball.r, ball.y);
-    drawH(ball.x, ball.y - ball.r);
-    drawH(ball.x, ball.y + ball.r);
+    const hs = 12 / viewScale;
+    [[ball.x+ball.r, ball.y], [ball.x-ball.r, ball.y], [ball.x, ball.y-ball.r], [ball.x, ball.y+ball.r]].forEach(p => {
+        ctxSource.beginPath(); ctxSource.arc(p[0], p[1], hs, 0, Math.PI*2); ctxSource.fill(); ctxSource.stroke();
+    });
 }
 
-// Interaction handlers
 function onWheel(e) {
-    if(!sourceMedia) return;
-    e.preventDefault();
-    const pos = getScreenPos(e);
-    const imgPos = toImageSpace(pos.x, pos.y);
-    const zoom = 0.1;
-    const delta = -Math.sign(e.deltaY);
-    
-    viewScale += delta * zoom * viewScale;
-    viewScale = Math.max(0.1, Math.min(20, viewScale));
-    
-    viewOffset.x = pos.x - imgPos.x * viewScale;
-    viewOffset.y = pos.y - imgPos.y * viewScale;
-    drawUI();
+    if(!sourceMedia) return; e.preventDefault();
+    const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y);
+    const oldScale = viewScale;
+    viewScale = Math.max(0.1, Math.min(20, viewScale + -Math.sign(e.deltaY) * 0.1 * viewScale));
+    viewOffset.x = pos.x - ip.x * viewScale; viewOffset.y = pos.y - ip.y * viewScale;
+    needsRender = true;
 }
 
 function onMouseDown(e) {
     if(!sourceMedia) return;
-    const pos = getScreenPos(e);
-    const ip = toImageSpace(pos.x, pos.y);
+    const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y);
     lastMouse = pos;
+    const tol = 30 / viewScale, distC = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2), distR = Math.abs(distC - ball.r);
     
-    const tol = 30 / viewScale;
-    const distC = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
-    const distR = Math.abs(distC - ball.r);
-    
-    const rightH = { x: ball.x + ball.r, y: ball.y };
-    const leftH = { x: ball.x - ball.r, y: ball.y };
-    const topH = { x: ball.x, y: ball.y - ball.r };
-    const bottomH = { x: ball.x, y: ball.y + ball.r };
-
-    const dRight = Math.sqrt((ip.x - rightH.x)**2 + (ip.y - rightH.y)**2);
-    const dLeft = Math.sqrt((ip.x - leftH.x)**2 + (ip.y - leftH.y)**2);
-    const dTop = Math.sqrt((ip.x - topH.x)**2 + (ip.y - topH.y)**2);
-    const dBottom = Math.sqrt((ip.x - bottomH.x)**2 + (ip.y - bottomH.y)**2);
-
-    if (dRight < tol) { isDragging=true; dragMode='resize-right'; sourceCanvas.style.cursor = 'ew-resize'; }
-    else if (dLeft < tol) { isDragging=true; dragMode='resize-left'; sourceCanvas.style.cursor = 'ew-resize'; }
-    else if (dTop < tol) { isDragging=true; dragMode='resize-top'; sourceCanvas.style.cursor = 'ns-resize'; }
-    else if (dBottom < tol) { isDragging=true; dragMode='resize-bottom'; sourceCanvas.style.cursor = 'ns-resize'; }
-    else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; sourceCanvas.style.cursor = 'nwse-resize'; }
-    else if (distC < ball.r) { isDragging=true; dragMode='move'; sourceCanvas.style.cursor = 'move'; }
-    else { isPanning=true; sourceCanvas.style.cursor = 'grabbing'; }
+    if (Math.sqrt((ip.x-(ball.x+ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-right'; }
+    else if (Math.sqrt((ip.x-(ball.x-ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-left'; }
+    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y-ball.r))**2) < tol) { isDragging=true; dragMode='resize-top'; }
+    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y+ball.r))**2) < tol) { isDragging=true; dragMode='resize-bottom'; }
+    else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; }
+    else if (distC < ball.r) { isDragging=true; dragMode='move'; }
+    else isPanning = true;
 }
 
 function onMouseMove(e) {
-    if(!sourceMedia) return;
-    const pos = getScreenPos(e);
-    
-    if(isPanning) {
-        viewOffset.x += pos.x - lastMouse.x;
-        viewOffset.y += pos.y - lastMouse.y;
-        lastMouse = pos;
-        drawUI();
-        return;
-    }
-    
-    if(isDragging) {
-        if(dragMode === 'move') {
-            ball.x += (pos.x - lastMouse.x) / viewScale;
-            ball.y += (pos.y - lastMouse.y) / viewScale;
-        } else if (dragMode === 'scale') {
-            const ip = toImageSpace(pos.x, pos.y);
-            const d = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
-            ball.r = d;
-        } else if (dragMode === 'resize-uniform') {
-            const ip = toImageSpace(pos.x, pos.y);
-            ball.r = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2);
-        } else if (dragMode === 'resize-right') {
-            const ip = toImageSpace(pos.x, pos.y);
-            const anchorX = ball.x - ball.r;
-            const newDia = Math.max(1, ip.x - anchorX);
-            ball.r = newDia / 2; ball.x = anchorX + ball.r;
-        } else if (dragMode === 'resize-left') {
-            const ip = toImageSpace(pos.x, pos.y);
-            const anchorX = ball.x + ball.r;
-            const newDia = Math.max(1, anchorX - ip.x);
-            ball.r = newDia / 2; ball.x = anchorX - ball.r;
-        } else if (dragMode === 'resize-bottom') {
-            const ip = toImageSpace(pos.x, pos.y);
-            const anchorY = ball.y - ball.r;
-            const newDia = Math.max(1, ip.y - anchorY);
-            ball.r = newDia / 2; ball.y = anchorY + ball.r;
-        } else if (dragMode === 'resize-top') {
-            const ip = toImageSpace(pos.x, pos.y);
-            const anchorY = ball.y + ball.r;
-            const newDia = Math.max(1, anchorY - ip.y);
-            ball.r = newDia / 2; ball.y = anchorY - ball.r;
-        }
-        
-        lastMouse = pos;
-        drawUI();
+    if(!sourceMedia) return; const pos = getScreenPos(e);
+    if(isPanning) { viewOffset.x += pos.x-lastMouse.x; viewOffset.y += pos.y-lastMouse.y; }
+    else if(isDragging) {
+        const dx = (pos.x-lastMouse.x)/viewScale, dy = (pos.y-lastMouse.y)/viewScale;
+        if(dragMode==='move') { ball.x+=dx; ball.y+=dy; }
+        else if(dragMode==='resize-uniform') ball.r = Math.sqrt((toImageSpace(pos.x,pos.y).x-ball.x)**2+(toImageSpace(pos.x,pos.y).y-ball.y)**2);
+        else if(dragMode==='resize-right') { const ax=ball.x-ball.r; ball.r=Math.max(1,toImageSpace(pos.x,0).x-ax)/2; ball.x=ax+ball.r; }
+        else if(dragMode==='resize-left') { const ax=ball.x+ball.r; ball.r=Math.max(1,ax-toImageSpace(pos.x,0).x)/2; ball.x=ax-ball.r; }
+        else if(dragMode==='resize-bottom') { const ay=ball.y-ball.r; ball.r=Math.max(1,toImageSpace(0,pos.y).y-ay)/2; ball.y=ay+ball.r; }
+        else if(dragMode==='resize-top') { const ay=ball.y+ball.r; ball.r=Math.max(1,ay-toImageSpace(0,pos.y).y)/2; ball.y=ay-ball.r; }
         updateParams();
     }
+    lastMouse = pos; needsRender = true;
 }
-
-function onMouseUp() {
-    isDragging = false; isPanning = false;
-    if(sourceCanvas) sourceCanvas.style.cursor = 'default';
-}
+function onMouseUp() { isDragging = isPanning = false; }
 
 /**
- * --- 3D PREVIEW VIEWER ---
+ * --- 3D PREVIEW ---
  */
 function initOrUpdate3D() {
-    if (!scene) {
-        initThreeJS();
+    if (!renderer) {
+        const container = threeContainer;
+        camera = new THREE.PerspectiveCamera(75, container.clientWidth/container.clientHeight, 1, 1100);
+        camera.target = new THREE.Vector3(0,0,0);
+        scene = new THREE.Scene();
+        const tex = new THREE.CanvasTexture(procCanvas);
+        tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+        sphereMesh = new THREE.Mesh(new THREE.SphereGeometry(500, 60, 40).scale(-1, 1, 1), new THREE.MeshBasicMaterial({ map: tex }));
+        scene.add(sphereMesh);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        container.innerHTML = ""; container.appendChild(renderer.domElement);
+        container.onmousedown = (e) => { isUserInteracting=true; onPointerDownPointerX=e.clientX; onPointerDownPointerY=e.clientY; onPointerDownLon=lon; onPointerDownLat=lat; };
+        container.onmousemove = (e) => { if(isUserInteracting) { lon = (onPointerDownPointerX-e.clientX)*0.1 + onPointerDownLon; lat = (e.clientY-onPointerDownPointerY)*0.1 + onPointerDownLat; }};
+        container.onmouseup = () => isUserInteracting=false;
     } else {
-        if (sphereMesh.material.map && sphereMesh.material.map.image !== procCanvas) {
-             sphereMesh.material.map.dispose();
-             // IMPORTANT: recreate texture with linear filter to avoid MIPMAP errors on resize
-             const tex = new THREE.CanvasTexture(procCanvas);
-             tex.minFilter = THREE.LinearFilter;
-             tex.generateMipmaps = false;
-             sphereMesh.material.map = tex;
+        if (sphereMesh.material.map.image !== procCanvas) {
+            sphereMesh.material.map.dispose();
+            const tex = new THREE.CanvasTexture(procCanvas);
+            tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+            sphereMesh.material.map = tex;
         }
-        sphereMesh.material.map.needsUpdate = true;
     }
 }
 
-function initThreeJS() {
-    const container = threeContainer;
-    camera = new THREE.PerspectiveCamera(75, container.clientWidth/container.clientHeight, 1, 1100);
-    camera.target = new THREE.Vector3(0,0,0);
-    scene = new THREE.Scene();
-    
-    const geo = new THREE.SphereGeometry(500, 60, 40);
-    geo.scale(-1, 1, 1);
-    
-    const tex = new THREE.CanvasTexture(procCanvas);
-    tex.minFilter = THREE.LinearFilter; // Crucial fix
-    tex.generateMipmaps = false;        // Crucial fix
-    
-    const mat = new THREE.MeshBasicMaterial({ map: tex });
-    sphereMesh = new THREE.Mesh(geo, mat);
-    scene.add(sphereMesh);
-    
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    container.innerHTML = "";
-    container.appendChild(renderer.domElement);
-    
-    container.addEventListener('mousedown', (e)=>{ isUserInteracting=true; onPointerDownPointerX=e.clientX; onPointerDownPointerY=e.clientY; onPointerDownLon=lon; onPointerDownLat=lat; });
-    container.addEventListener('mousemove', (e)=>{
-        if(isUserInteracting) {
-            lon = (onPointerDownPointerX - e.clientX) * 0.1 + onPointerDownLon;
-            lat = (e.clientY - onPointerDownPointerY) * 0.1 + onPointerDownLat;
-        }
-    });
-    container.addEventListener('mouseup', ()=>{ isUserInteracting=false; });
-    container.addEventListener('wheel', (e)=>{
-        e.preventDefault();
-        camera.fov += e.deltaY * 0.05;
-        camera.fov = Math.max(10, Math.min(100, camera.fov));
-        camera.updateProjectionMatrix();
-    });
-    
-    animate3D();
-}
-
-function animate3D() {
-    requestAnimationFrame(animate3D);
-    if(!renderer) return;
-    
+function render3D() {
     lat = Math.max(-85, Math.min(85, lat));
-    phi = THREE.Math.degToRad(90 - lat);
-    theta = THREE.Math.degToRad(lon);
-    
-    camera.target.x = 500 * Math.sin(phi) * Math.cos(theta);
-    camera.target.y = 500 * Math.cos(phi);
-    camera.target.z = 500 * Math.sin(phi) * Math.sin(theta);
+    const p = THREE.Math.degToRad(90 - lat), t = THREE.Math.degToRad(lon);
+    camera.target.set(500 * Math.sin(p) * Math.cos(t), 500 * Math.cos(p), 500 * Math.sin(p) * Math.sin(t));
     camera.lookAt(camera.target);
-    
-    // Always force update for safety during active sessions
-    if (sphereMesh && sphereMesh.material.map && (needsRender || isVideo)) {
-        sphereMesh.material.map.needsUpdate = true;
-    }
-    
+    sphereMesh.material.map.needsUpdate = true;
     renderer.render(scene, camera);
 }
 
-// Initial placeholder
-ctxSource.fillStyle = '#333';
-ctxSource.fillRect(0,0, sourceCanvas.width, sourceCanvas.height);
-ctxSource.fillStyle = '#555';
-ctxSource.font = "20px sans-serif";
-ctxSource.fillText("No Image Loaded", 10, 30);
-
+// Initial draw
+ctxSource.fillStyle = '#1e293b'; ctxSource.fillRect(0,0,sourceCanvas.width,sourceCanvas.height);
 </script>
 </body>
 </html>
