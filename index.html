@@ -76,7 +76,6 @@
         .toast.error { border-left-color: #ef4444; }
         .toast.success { border-left-color: #10b981; }
 
-        /* Panel transitions */
         .collapsible-content {
             transition: max-height 0.3s ease-out, opacity 0.3s ease, padding 0.3s ease;
             max-height: 2000px;
@@ -90,14 +89,9 @@
             overflow: hidden;
             pointer-events: none;
         }
-        .chevron-icon {
-            transition: transform 0.3s ease;
-        }
-        .collapsed .chevron-icon {
-            transform: rotate(-90deg);
-        }
+        .chevron-icon { transition: transform 0.3s ease; }
+        .collapsed .chevron-icon { transform: rotate(-90deg); }
 
-        /* Focus Mode Utility */
         .is-focused {
             position: fixed !important;
             top: 0 !important;
@@ -111,12 +105,21 @@
             display: flex !important;
             flex-direction: column;
         }
-        .is-focused .canvas-container {
-            flex-grow: 1;
-            height: auto !important;
+        .is-focused .canvas-container { flex-grow: 1; height: auto !important; }
+        .is-focused #threeContainer canvas { height: 100% !important; }
+
+        .live-indicator {
+            width: 8px;
+            height: 8px;
+            background-color: #ef4444;
+            border-radius: 50%;
+            display: inline-block;
+            animation: pulse 1.5s infinite;
         }
-        .is-focused #threeContainer canvas {
-            height: 100% !important;
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.7; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.7; }
         }
     </style>
 </head>
@@ -129,7 +132,7 @@
                 <h1 class="text-3xl font-bold text-white tracking-tight">Mirror Ball Unwrapper</h1>
                 <p class="text-xs text-gray-500 mt-1 uppercase tracking-widest font-semibold">Fisheye to Equirectangular Tool</p>
             </div>
-            <div class="text-[10px] text-gray-600 font-mono">v1.3 • Focus & Fullscreen Ready</div>
+            <div class="text-[10px] text-gray-600 font-mono">v1.5 • Stable & Live Ready</div>
         </div>
 
         <!-- 1. Import & Playback Section -->
@@ -145,7 +148,7 @@
             </div>
 
             <div class="collapsible-content">
-                <div class="p-4 flex items-center gap-4 bg-gray-800/80">
+                <div class="p-4 flex flex-wrap items-center gap-4 bg-gray-800/80">
                     <label class="relative flex-grow md:flex-grow-0 min-w-[200px]">
                         <span class="sr-only">Choose File</span>
                         <input type="file" id="fileInput" accept="image/*, video/*" class="block w-full text-sm text-gray-400
@@ -157,9 +160,19 @@
                             cursor-pointer focus:outline-none
                         "/>
                     </label>
-                    <button id="loadExampleBtn" style="display: none;" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
-                        Load Example
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button id="webcamBtn" class="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold rounded-full transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                            <span>Live Webcam</span>
+                        </button>
+                        <button id="loadExampleBtn" style="display: none;" class="text-sm text-gray-400 hover:text-indigo-400 underline underline-offset-2 transition-colors">
+                            Example
+                        </button>
+                    </div>
+                    <div id="liveIndicator" class="hidden items-center gap-2 ml-auto">
+                        <span class="live-indicator"></span>
+                        <span class="text-[10px] font-bold text-red-500 uppercase tracking-widest">Live Feed</span>
+                    </div>
                 </div>
 
                 <div id="videoControls" class="hidden bg-gray-900/50 p-3 flex items-center gap-4 border-t border-gray-800 h-16">
@@ -231,7 +244,7 @@
                             <canvas id="sourceCanvas"></canvas>
                             <div id="emptyState" class="absolute inset-0 flex items-center justify-center text-gray-500 pointer-events-none flex-col gap-2">
                                 <svg class="w-12 h-12 text-gray-600 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
-                                <p class="font-medium text-sm">Upload to begin</p>
+                                <p class="font-medium text-sm">Upload media or start webcam</p>
                             </div>
                         </div>
                     </div>
@@ -404,6 +417,7 @@ let lat = 0, onPointerDownLat = 0;
 
 let sourceMedia = null; 
 let isVideo = false;
+let isWebcam = false;
 let isVideoPlaying = false;
 let isExportingFrames = false;
 let maxTextureSize = 4096;
@@ -422,6 +436,8 @@ let lastMouse = { x: 0, y: 0 };
  * --- DOM ELEMENTS ---
  */
 const fileInput = document.getElementById('fileInput');
+const webcamBtn = document.getElementById('webcamBtn');
+const liveIndicator = document.getElementById('liveIndicator');
 const downloadBtn = document.getElementById('downloadBtn');
 const exportFramesBtn = document.getElementById('exportFramesBtn');
 const loadExampleBtn = document.getElementById('loadExampleBtn');
@@ -512,28 +528,54 @@ function formatTime(seconds) {
 function toggleFocus(elementId) {
     const el = document.getElementById(elementId);
     el.classList.toggle('is-focused');
-    
     if (el.classList.contains('is-focused')) {
-        showToast("Press Escape or Click the icon to exit Focus Mode", "info");
-        // Scroll to top to ensure visibility
+        showToast("Escape to exit Focus Mode", "info");
         window.scrollTo(0, 0);
     }
-    
     triggerResize();
 }
 
 function toggleFullscreen() {
-    const elem = viewerSection;
     if (!document.fullscreenElement) {
-        elem.requestFullscreen().catch(err => {
-            showToast(`Error enabling fullscreen: ${err.message}`, "error");
-        });
+        viewerSection.requestFullscreen().catch(err => showToast(`Fullscreen error: ${err.message}`, "error"));
     } else {
         document.exitFullscreen();
     }
 }
 
-// Watch for Escape key to exit Focus Mode
+/**
+ * --- PARAMETER UPDATES (Fixed Hoisting) ---
+ */
+function updateUIValues() {
+    if (fovValue) fovValue.innerText = `${fovSlider.value}°`;
+    if (pitchValue) pitchValue.innerText = `${pitchSlider.value}°`;
+    if (yawValue) yawValue.innerText = `${yawSlider.value}°`;
+    if (rollValue) rollValue.innerText = `${rollSlider.value}°`;
+}
+
+function updateParams() {
+    updateProcessorParams();
+    updateUIValues();
+    needsRender = true;
+}
+
+/**
+ * --- INITIALIZATION ---
+ */
+initProcessor();
+
+function triggerResize() {
+    if (renderer && camera) {
+        const container = threeContainer;
+        camera.aspect = container.clientWidth / container.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(container.clientWidth, container.clientHeight);
+    }
+    needsRender = true;
+}
+
+window.addEventListener('resize', triggerResize);
+
 window.addEventListener('keydown', (e) => {
     if (e.key === "Escape") {
         document.querySelectorAll('.is-focused').forEach(el => {
@@ -543,129 +585,80 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-// Watch for Fullscreen Change
 document.addEventListener('fullscreenchange', triggerResize);
 
-/**
- * --- INITIALIZATION ---
- */
-initProcessor();
-
-// Window Resize for 3D View and Processor UI
-function triggerResize() {
-    if (renderer && camera) {
-        const container = threeContainer;
-        camera.aspect = container.clientWidth / container.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(container.clientWidth, container.clientHeight);
-    }
-    needsRender = true;
-};
-
-window.addEventListener('resize', triggerResize);
-
-// Setup Section Collapsing
 document.querySelectorAll('.panel-header').forEach(header => {
     header.addEventListener('click', (e) => {
-        // Prevent toggle if clicking focus icon
         if (e.target.closest('button')) return;
-
         const content = header.nextElementSibling;
         const panel = header.closest('.panel-card');
         content.classList.toggle('collapsed');
         panel.classList.toggle('collapsed');
-        
-        // Wait for CSS transition to finish then trigger resize
         setTimeout(triggerResize, 310);
     });
 });
 
+/**
+ * --- MEDIA HANDLING ---
+ */
 fileInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) handleFileSelect(e.target.files[0]);
-});
-
-sourceContainer.addEventListener('dragover', (e) => { e.preventDefault(); sourceContainer.classList.add('drag-over'); });
-sourceContainer.addEventListener('dragleave', (e) => { e.preventDefault(); sourceContainer.classList.remove('drag-over'); });
-sourceContainer.addEventListener('drop', (e) => {
-    e.preventDefault();
-    sourceContainer.classList.remove('drag-over');
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]);
-});
-
-sourceContainer.addEventListener('click', (e) => { if (!sourceMedia) fileInput.click(); });
-
-playPauseBtn.addEventListener('click', toggleVideoPlayback);
-videoSeek.addEventListener('input', () => {
-    if (isVideo && sourceMedia) {
-        sourceMedia.currentTime = sourceMedia.duration * (videoSeek.value / 100);
-        needsRender = true;
+    if (e.target.files && e.target.files[0]) {
+        stopWebcam();
+        handleFileSelect(e.target.files[0]);
     }
 });
 
-autoDetectBtn.addEventListener('click', runAutoDetect);
-toggleDetectConfig.addEventListener('click', (e) => { e.stopPropagation(); detectConfigPanel.classList.toggle('hidden'); });
+webcamBtn.addEventListener('click', toggleWebcam);
 
-inpSensitivity.addEventListener('input', () => { valSensitivity.innerText = `${inpSensitivity.value}%`; });
-inpBias.addEventListener('input', () => { valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
+async function toggleWebcam() {
+    if (isWebcam) {
+        stopWebcam();
+        showToast("Webcam stopped", "info");
+        return;
+    }
 
-const updateParams = () => {
-    updateProcessorParams();
-    updateUIValues();
-    needsRender = true;
-};
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 1280 } });
+        sourceVideoHidden.srcObject = stream;
+        sourceVideoHidden.onloadedmetadata = () => {
+            sourceVideoHidden.play();
+            sourceMedia = sourceVideoHidden;
+            isWebcam = true;
+            isVideo = false;
+            videoControls.classList.add('hidden');
+            liveIndicator.classList.remove('hidden');
+            webcamBtn.classList.add('bg-red-600', 'hover:bg-red-500');
+            webcamBtn.querySelector('span').innerText = "Stop Webcam";
+            initWorkspace();
+        };
+    } catch (err) {
+        showToast(`Camera access denied or unavailable.`, "error");
+        console.error(err);
+    }
+}
 
-const updateUIValues = () => {
-    fovValue.innerText = `${fovSlider.value}°`;
-    pitchValue.innerText = `${pitchSlider.value}°`;
-    yawValue.innerText = `${yawSlider.value}°`;
-    rollValue.innerText = `${rollSlider.value}°`;
-};
+function stopWebcam() {
+    if (!isWebcam) return;
+    const stream = sourceVideoHidden.srcObject;
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    sourceVideoHidden.srcObject = null;
+    isWebcam = false;
+    liveIndicator.classList.add('hidden');
+    webcamBtn.classList.remove('bg-red-600', 'hover:bg-red-500');
+    webcamBtn.querySelector('span').innerText = "Live Webcam";
+}
 
-fovSlider.addEventListener('input', updateParams);
-pitchSlider.addEventListener('input', updateParams);
-yawSlider.addEventListener('input', updateParams);
-rollSlider.addEventListener('input', updateParams);
-widthInput.addEventListener('change', updateParams); 
-showSourceToggle.addEventListener('change', updateParams);
-
-sourceCanvas.addEventListener('mousedown', onMouseDown);
-sourceCanvas.addEventListener('mousemove', onMouseMove);
-window.addEventListener('mouseup', onMouseUp);
-sourceCanvas.addEventListener('wheel', onWheel, { passive: false });
-
-sourceCanvas.addEventListener('touchstart', (e) => {
-    const touch = e.touches[0];
-    onMouseDown({ clientX: touch.clientX, clientY: touch.clientY, target: sourceCanvas, preventDefault: () => e.preventDefault() });
-}, {passive: false});
-window.addEventListener('touchmove', (e) => {
-    if(isDragging || isPanning) e.preventDefault(); 
-    const touch = e.touches[0];
-    onMouseMove({ clientX: touch.clientX, clientY: touch.clientY, target: sourceCanvas });
-}, {passive: false});
-window.addEventListener('touchend', onMouseUp);
-
-downloadBtn.addEventListener('click', () => {
-    needsRender = true;
-    renderProcessor(); 
-    const link = document.createElement('a');
-    link.download = 'equirectangular-map.png';
-    link.href = procCanvas.toDataURL('image/png');
-    link.click();
-});
-
-/**
- * --- CORE FUNCTIONS ---
- */
 function handleFileSelect(file) {
     if (!file) return;
     const isVideoFile = file.type.startsWith('video/');
+    isVideo = isVideoFile;
+    isWebcam = false;
 
-    if (isVideoFile) {
-        isVideo = true;
+    if (isVideo) {
         const url = URL.createObjectURL(file);
+        sourceVideoHidden.srcObject = null;
         sourceVideoHidden.src = url;
         sourceMedia = sourceVideoHidden;
-        sourceVideoHidden.muted = true;
         sourceVideoHidden.onloadeddata = () => {
             sourceVideoHidden.currentTime = 0.001;
             timeTotal.innerText = formatTime(sourceVideoHidden.duration);
@@ -679,7 +672,6 @@ function handleFileSelect(file) {
             downloadBtn.style.display = 'none';
         };
     } else {
-        isVideo = false;
         videoControls.classList.add('hidden');
         fpsControl.classList.add('hidden');
         exportFramesBtn.style.display = 'none';
@@ -697,8 +689,9 @@ function initWorkspace() {
     emptyState.style.display = 'none';
     viewerSection.classList.remove('hidden'); 
     
-    const w = isVideo ? sourceMedia.videoWidth : sourceMedia.width;
-    const h = isVideo ? sourceMedia.videoHeight : sourceMedia.height;
+    const w = isWebcam ? sourceVideoHidden.videoWidth : (isVideo ? sourceMedia.videoWidth : sourceMedia.width);
+    const h = isWebcam ? sourceVideoHidden.videoHeight : (isVideo ? sourceMedia.videoHeight : sourceMedia.height);
+    
     sourceCanvas.width = w;
     sourceCanvas.height = h;
     
@@ -726,10 +719,6 @@ function initWorkspace() {
     resInfo.innerText = `${optimalW} x ${Math.floor(optimalW/2)} px`;
     downloadBtn.style.display = isVideo ? 'none' : 'flex';
     
-    if (!isVideo) {
-        setTimeout(() => { needsRender = true; drawUI(); }, 100);
-    }
-    
     if (!window.loopId) animate();
 }
 
@@ -739,14 +728,15 @@ function animate() {
 
     let forceUpdate = needsRender;
 
-    if (isVideo && !isExportingFrames && !sourceVideoHidden.paused) {
+    if ((isVideo && !sourceVideoHidden.paused) || isWebcam) {
         if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
             procTexture.needsUpdate = true;
             forceUpdate = true;
         }
-        const cur = sourceMedia.currentTime;
-        videoSeek.value = (cur / sourceMedia.duration) * 100;
-        timeCurrent.innerText = formatTime(cur);
+        if (isVideo) {
+            videoSeek.value = (sourceMedia.currentTime / sourceMedia.duration) * 100;
+            timeCurrent.innerText = formatTime(sourceMedia.currentTime);
+        }
     }
 
     if (forceUpdate) {
@@ -761,29 +751,23 @@ function animate() {
 }
 
 /**
- * --- AUTO DETECT ---
+ * --- CORE LOGIC ---
  */
 function runAutoDetect() {
     if (!sourceMedia) return;
-    showToast("Analyzing image...", "info");
-    
+    showToast("Analyzing source...", "info");
     const sensPct = parseInt(inpSensitivity.value) / 100; 
     const biasPct = parseInt(inpBias.value) / 100;
-    
-    const w = sourceCanvas.width;
-    const h = sourceCanvas.height;
+    const w = sourceCanvas.width, h = sourceCanvas.height;
     const scale = 320 / Math.max(w, h);
     const sw = Math.floor(w * scale), sh = Math.floor(h * scale);
-    
     const sc = document.createElement('canvas');
     sc.width = sw; sc.height = sh;
     const sCtx = sc.getContext('2d');
     sCtx.drawImage(sourceMedia, 0, 0, sw, sh);
     const data = sCtx.getImageData(0, 0, sw, sh).data;
-    
     const gray = new Float32Array(sw * sh);
     for (let i = 0; i < sw * sh; i++) gray[i] = data[i*4]*0.3 + data[i*4+1]*0.59 + data[i*4+2]*0.11;
-    
     const mag = new Float32Array(sw * sh), gx = new Float32Array(sw * sh), gy = new Float32Array(sw * sh);
     let maxMag = 0;
     for (let y = 1; y < sh - 1; y++) {
@@ -795,12 +779,10 @@ function runAutoDetect() {
             if (mag[i] > maxMag) maxMag = mag[i];
         }
     }
-    
     const threshold = maxMag * sensPct;
     const acc = new Float32Array(sw * sh);
     const minR = Math.max(5, Math.min(sw, sh) * 0.1);
     const maxR = Math.min(sw, sh) * 0.5;
-    
     for (let i = 0; i < sw * sh; i++) {
         if (mag[i] < threshold) continue;
         const x = i % sw, y = Math.floor(i / sw);
@@ -812,14 +794,12 @@ function runAutoDetect() {
             }
         }
     }
-    
     let bestIdx = 0, maxVote = 0;
     for (let i = 0; i < sw * sh; i++) {
         const x = i % sw, y = Math.floor(i / sw);
         const weight = Math.max(0, 1.0 - (Math.sqrt((x - sw/2)**2 + (y - sh/2)**2) / (sw*0.7)) * biasPct);
         if (acc[i] * weight > maxVote) { maxVote = acc[i] * weight; bestIdx = i; }
     }
-    
     const cx = (bestIdx % sw) / scale, cy = Math.floor(bestIdx / sw) / scale;
     const rHist = new Float32Array(Math.floor(Math.max(w, h)));
     for (let i = 0; i < sw * sh; i++) {
@@ -828,82 +808,22 @@ function runAutoDetect() {
             if (d < rHist.length) rHist[d] += mag[i];
         }
     }
-    
     let bestR = ball.r, maxRS = 0;
     const rStart = Math.floor(minR/scale), rEnd = Math.floor(maxR/scale);
     for (let r = rStart; r < rEnd; r++) if (rHist[r] > maxRS) { maxRS = rHist[r]; bestR = r; }
-    
     ball.x = cx; ball.y = cy; ball.r = Math.max(10, bestR);
     needsRender = true; drawUI(); updateParams();
     showToast("Circle updated!", "success");
 }
 
-/**
- * --- VIDEO & EXPORT ---
- */
-function toggleVideoPlayback() {
-    if (!sourceMedia) return;
-    if (sourceMedia.paused) {
-        sourceMedia.play(); isVideoPlaying = true;
-        iconPlay.classList.add('hidden'); iconPause.classList.remove('hidden');
-    } else {
-        sourceMedia.pause(); isVideoPlaying = false;
-        iconPlay.classList.remove('hidden'); iconPause.classList.add('hidden');
-        needsRender = true;
-    }
-}
-
-async function startFrameExport() {
-    if (!isVideo || !sourceMedia || isExportingFrames) return; 
-    isExportingFrames = true; sourceMedia.pause();
-    
-    const fps = parseInt(fpsInput.value) || 25, interval = 1.0 / fps, duration = sourceMedia.duration;
-    const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const width = parseInt(widthInput.value) || 2048;
-    
-    exportFramesBtn.disabled = true; exportFramesBtn.innerText = "Exporting...";
-    exportProgressContainer.classList.remove('hidden');
-
-    let currentTime = 0, frameCount = 0, zip = new JSZip(), folder = zip.folder("frames");
-    const total = Math.ceil(duration * fps);
-
-    try {
-        while (currentTime < duration && isExportingFrames) {
-            sourceMedia.currentTime = currentTime;
-            await new Promise(r => sourceMedia.onseeked = r);
-            procTexture.needsUpdate = true;
-            renderProcessor();
-            
-            const blob = await new Promise(r => procCanvas.toBlob(r, mime, format === 'jpg' ? 0.9 : undefined));
-            folder.file(`frame_${String(frameCount++).padStart(5, '0')}.${format}`, blob);
-            
-            const pct = Math.floor((currentTime / duration) * 100);
-            exportProgressBar.style.width = `${pct}%`;
-            exportPercentText.innerText = `${pct}%`;
-            exportStatusText.innerText = `Frame ${frameCount} / ${total}`;
-            currentTime += interval;
-        }
-        if (isExportingFrames) saveAs(await zip.generateAsync({type:"blob"}), "equirectangular_sequence.zip");
-    } catch (e) { showToast("Export Error", "error"); }
-    finally {
-        isExportingFrames = false; exportFramesBtn.disabled = false; exportFramesBtn.innerText = "Export ZIP";
-        exportProgressContainer.classList.add('hidden');
-    }
-}
-
-/**
- * --- PROCESSOR ---
- */
 function initProcessor() {
     procRenderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
     maxTextureSize = procRenderer.getContext().getParameter(procRenderer.getContext().MAX_TEXTURE_SIZE);
     procRenderer.setSize(1024, 512, false);
     procCanvas = procRenderer.domElement;
     destContainer.appendChild(procCanvas);
-
     procScene = new THREE.Scene();
     procCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    
     const fragmentShader = `
         uniform sampler2D tDiffuse;
         uniform vec2 uResolution;
@@ -936,7 +856,6 @@ function initProcessor() {
         }
     `;
     const vertexShader = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position, 1.0); }`;
-
     procMaterial = new THREE.ShaderMaterial({
         uniforms: {
             tDiffuse: { value: null }, uResolution: { value: new THREE.Vector2(1, 1) },
@@ -951,11 +870,7 @@ function initProcessor() {
 function updateProcessorParams() {
     let tw = Math.min(maxTextureSize, parseInt(widthInput.value) || 2048);
     let th = Math.floor(tw / 2);
-    if (procCanvas.width !== tw) {
-        procRenderer.setSize(tw, th, false);
-        resInfo.innerText = `${tw} x ${th} px`;
-        initOrUpdate3D();
-    }
+    if (procCanvas.width !== tw) { procRenderer.setSize(tw, th, false); resInfo.innerText = `${tw} x ${th} px`; initOrUpdate3D(); }
     procMaterial.uniforms.uBall.value.set(ball.x, sourceCanvas.height - ball.y, ball.r, 0);
     procMaterial.uniforms.uFov.value = parseInt(fovSlider.value) * Math.PI / 180;
     procMaterial.uniforms.uShowSource.value = showSourceToggle.checked;
@@ -966,71 +881,49 @@ function updateProcessorParams() {
 
 function renderProcessor() { procRenderer.render(procScene, procCamera); }
 
-/**
- * --- UI CANVAS ---
- */
 function drawUI() {
     if (!sourceMedia) return;
-    ctxSource.setTransform(1, 0, 0, 1, 0, 0);
-    ctxSource.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-    ctxSource.translate(viewOffset.x, viewOffset.y);
-    ctxSource.scale(viewScale, viewScale);
+    ctxSource.setTransform(1, 0, 0, 1, 0, 0); ctxSource.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    ctxSource.translate(viewOffset.x, viewOffset.y); ctxSource.scale(viewScale, viewScale);
     ctxSource.drawImage(sourceMedia, 0, 0);
-    
-    ctxSource.beginPath();
-    ctxSource.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
+    ctxSource.beginPath(); ctxSource.arc(ball.x, ball.y, ball.r, 0, Math.PI*2);
     ctxSource.lineWidth = 3 / viewScale; ctxSource.strokeStyle = '#ef4444'; ctxSource.stroke();
-    
-    ctxSource.fillStyle = '#fff';
-    const hs = 12 / viewScale;
+    ctxSource.fillStyle = '#fff'; const hs = 12 / viewScale;
     [[ball.x+ball.r, ball.y], [ball.x-ball.r, ball.y], [ball.x, ball.y-ball.r], [ball.x, ball.y+ball.r]].forEach(p => {
         ctxSource.beginPath(); ctxSource.arc(p[0], p[1], hs, 0, Math.PI*2); ctxSource.fill(); ctxSource.stroke();
     });
 }
 
-function onWheel(e) {
-    if(!sourceMedia) return; e.preventDefault();
-    const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y);
-    viewScale = Math.max(0.1, Math.min(20, viewScale + -Math.sign(e.deltaY) * 0.1 * viewScale));
-    viewOffset.x = pos.x - ip.x * viewScale; viewOffset.y = pos.y - ip.y * viewScale;
-    needsRender = true;
+function toggleVideoPlayback() {
+    if (!sourceMedia || isWebcam) return;
+    if (sourceMedia.paused) { sourceMedia.play(); isVideoPlaying = true; iconPlay.classList.add('hidden'); iconPause.classList.remove('hidden'); }
+    else { sourceMedia.pause(); isVideoPlaying = false; iconPlay.classList.remove('hidden'); iconPause.classList.add('hidden'); needsRender = true; }
 }
 
-function onMouseDown(e) {
-    if(!sourceMedia) return;
-    const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y);
-    lastMouse = pos;
-    const tol = 30 / viewScale, distC = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2), distR = Math.abs(distC - ball.r);
-    
-    if (Math.sqrt((ip.x-(ball.x+ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-right'; }
-    else if (Math.sqrt((ip.x-(ball.x-ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-left'; }
-    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y-ball.r))**2) < tol) { isDragging=true; dragMode='resize-top'; }
-    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y+ball.r))**2) < tol) { isDragging=true; dragMode='resize-bottom'; }
-    else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; }
-    else if (distC < ball.r) { isDragging=true; dragMode='move'; }
-    else isPanning = true;
+async function startFrameExport() {
+    if (!isVideo || !sourceMedia || isExportingFrames) return; 
+    isExportingFrames = true; sourceMedia.pause();
+    const fps = parseInt(fpsInput.value) || 25, interval = 1.0 / fps, duration = sourceMedia.duration;
+    const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
+    exportFramesBtn.disabled = true; exportFramesBtn.innerText = "Exporting...";
+    exportProgressContainer.classList.remove('hidden');
+    let currentTime = 0, frameCount = 0, zip = new JSZip(), folder = zip.folder("frames");
+    try {
+        while (currentTime < duration && isExportingFrames) {
+            sourceMedia.currentTime = currentTime;
+            await new Promise(r => sourceMedia.onseeked = r);
+            procTexture.needsUpdate = true;
+            renderProcessor();
+            const blob = await new Promise(r => procCanvas.toBlob(r, mime, format === 'jpg' ? 0.9 : undefined));
+            folder.file(`frame_${String(frameCount++).padStart(5, '0')}.${format}`, blob);
+            exportProgressBar.style.width = `${Math.floor((currentTime / duration) * 100)}%`;
+            currentTime += interval;
+        }
+        if (isExportingFrames) saveAs(await zip.generateAsync({type:"blob"}), "equirectangular_sequence.zip");
+    } catch (e) { showToast("Export Error", "error"); }
+    finally { isExportingFrames = false; exportFramesBtn.disabled = false; exportFramesBtn.innerText = "Export ZIP"; exportProgressContainer.classList.add('hidden'); }
 }
 
-function onMouseMove(e) {
-    if(!sourceMedia) return; const pos = getScreenPos(e);
-    if(isPanning) { viewOffset.x += pos.x-lastMouse.x; viewOffset.y += pos.y-lastMouse.y; }
-    else if(isDragging) {
-        const dx = (pos.x-lastMouse.x)/viewScale, dy = (pos.y-lastMouse.y)/viewScale;
-        if(dragMode==='move') { ball.x+=dx; ball.y+=dy; }
-        else if(dragMode==='resize-uniform') ball.r = Math.sqrt((toImageSpace(pos.x,pos.y).x-ball.x)**2+(toImageSpace(pos.x,pos.y).y-ball.y)**2);
-        else if(dragMode==='resize-right') { const ax=ball.x-ball.r; ball.r=Math.max(1,toImageSpace(pos.x,0).x-ax)/2; ball.x=ax+ball.r; }
-        else if(dragMode==='resize-left') { const ax=ball.x+ball.r; ball.r=Math.max(1,ax-toImageSpace(pos.x,0).x)/2; ball.x=ax-ball.r; }
-        else if(dragMode==='resize-bottom') { const ay=ball.y-ball.r; ball.r=Math.max(1,toImageSpace(0,pos.y).y-ay)/2; ball.y=ay+ball.r; }
-        else if(dragMode==='resize-top') { const ay=ball.y+ball.r; ball.r=Math.max(1,ay-toImageSpace(0,pos.y).y)/2; ball.y=ay-ball.r; }
-        updateParams();
-    }
-    lastMouse = pos; needsRender = true;
-}
-function onMouseUp() { isDragging = isPanning = false; }
-
-/**
- * --- 3D PREVIEW ---
- */
 function initOrUpdate3D() {
     if (!renderer) {
         const container = threeContainer;
@@ -1067,7 +960,53 @@ function render3D() {
     renderer.render(scene, camera);
 }
 
-// Initial draw
+// Global Event Listeners
+autoDetectBtn.addEventListener('click', runAutoDetect);
+toggleDetectConfig.addEventListener('click', (e) => { e.stopPropagation(); detectConfigPanel.classList.toggle('hidden'); });
+inpSensitivity.addEventListener('input', () => { valSensitivity.innerText = `${inpSensitivity.value}%`; });
+inpBias.addEventListener('input', () => { valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
+fovSlider.addEventListener('input', updateParams);
+pitchSlider.addEventListener('input', updateParams);
+yawSlider.addEventListener('input', updateParams);
+rollSlider.addEventListener('input', updateParams);
+widthInput.addEventListener('change', updateParams); 
+showSourceToggle.addEventListener('change', updateParams);
+sourceCanvas.addEventListener('mousedown', onMouseDown);
+sourceCanvas.addEventListener('mousemove', onMouseMove);
+window.addEventListener('mouseup', onMouseUp);
+sourceCanvas.addEventListener('wheel', onWheel, { passive: false });
+playPauseBtn.addEventListener('click', toggleVideoPlayback);
+videoSeek.addEventListener('input', () => { if (isVideo && sourceMedia) { sourceMedia.currentTime = sourceMedia.duration * (videoSeek.value / 100); needsRender = true; } });
+downloadBtn.addEventListener('click', () => { renderProcessor(); const link = document.createElement('a'); link.download = 'equirectangular.png'; link.href = procCanvas.toDataURL('image/png'); link.click(); });
+exportFramesBtn.addEventListener('click', startFrameExport);
+
+function onWheel(e) { if(!sourceMedia) return; e.preventDefault(); const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y); viewScale = Math.max(0.1, Math.min(20, viewScale + -Math.sign(e.deltaY) * 0.1 * viewScale)); viewOffset.x = pos.x - ip.x * viewScale; viewOffset.y = pos.y - ip.y * viewScale; needsRender = true; }
+function onMouseDown(e) {
+    if(!sourceMedia) return; const pos = getScreenPos(e), ip = toImageSpace(pos.x, pos.y); lastMouse = pos; const tol = 30 / viewScale, distC = Math.sqrt((ip.x-ball.x)**2 + (ip.y-ball.y)**2), distR = Math.abs(distC - ball.r);
+    if (Math.sqrt((ip.x-(ball.x+ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-right'; }
+    else if (Math.sqrt((ip.x-(ball.x-ball.r))**2+(ip.y-ball.y)**2) < tol) { isDragging=true; dragMode='resize-left'; }
+    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y-ball.r))**2) < tol) { isDragging=true; dragMode='resize-top'; }
+    else if (Math.sqrt((ip.x-ball.x)**2+(ip.y-(ball.y+ball.r))**2) < tol) { isDragging=true; dragMode='resize-bottom'; }
+    else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; }
+    else if (distC < ball.r) { isDragging=true; dragMode='move'; }
+    else isPanning = true;
+}
+function onMouseMove(e) {
+    if(!sourceMedia) return; const pos = getScreenPos(e);
+    if(isPanning) { viewOffset.x += pos.x-lastMouse.x; viewOffset.y += pos.y-lastMouse.y; }
+    else if(isDragging) {
+        const dx = (pos.x-lastMouse.x)/viewScale, dy = (pos.y-lastMouse.y)/viewScale;
+        if(dragMode==='move') { ball.x+=dx; ball.y+=dy; }
+        else if(dragMode==='resize-uniform') ball.r = Math.sqrt((toImageSpace(pos.x,pos.y).x-ball.x)**2+(toImageSpace(pos.x,pos.y).y-ball.y)**2);
+        else if(dragMode==='resize-right') { const ax=ball.x-ball.r; ball.r=Math.max(1,toImageSpace(pos.x,0).x-ax)/2; ball.x=ax+ball.r; }
+        else if(dragMode==='resize-left') { const ax=ball.x+ball.r; ball.r=Math.max(1,ax-toImageSpace(pos.x,0).x)/2; ball.x=ax-ball.r; }
+        else if(dragMode==='resize-bottom') { const ay=ball.y-ball.r; ball.r=Math.max(1,toImageSpace(0,pos.y).y-ay)/2; ball.y=ay+ball.r; }
+        else if(dragMode==='resize-top') { const ay=ball.y+ball.r; ball.r=Math.max(1,ay-toImageSpace(0,pos.y).y)/2; ball.y=ay-ball.r; }
+        updateParams();
+    }
+    lastMouse = pos; needsRender = true;
+}
+function onMouseUp() { isDragging = isPanning = false; }
 ctxSource.fillStyle = '#1e293b'; ctxSource.fillRect(0,0,sourceCanvas.width,sourceCanvas.height);
 </script>
 </body>
