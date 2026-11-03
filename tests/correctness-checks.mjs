@@ -37,8 +37,8 @@ export async function runCorrectnessChecks({ evaluate, check, waitFor, loadImage
         handleFileSelect(new File([blob], 'circle.png', { type: 'image/png' })); return true;
     })()`);
     await waitFor("sourceMedia?.tagName === 'IMG' && sourceCanvas.width === 1024 && sourceCanvas.height === 768");
-    await check('Auto Detect maps a confirmed circle back to full source coordinates', `(() => {
-        return runAutoDetect() === true && Math.hypot(ball.x - 500, ball.y - 360) < 10 && Math.abs(ball.r - 260) < 10;
+    await check('Auto align maps a confirmed circle back to full source coordinates', `(async () => {
+        return await runAutoDetect() === true && Math.hypot(ball.x - 500, ball.y - 360) < 10 && Math.abs(ball.r - 260) < 10;
     })()`);
     await evaluate(`(async () => {
         const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
@@ -51,9 +51,9 @@ export async function runCorrectnessChecks({ evaluate, check, waitFor, loadImage
         handleFileSelect(new File([blob], 'coordinates.png', { type: 'image/png' })); return true;
     })()`);
     await waitFor("sourceMedia?.tagName === 'IMG' && sourceCanvas.width === 256 && sourceCanvas.height === 256");
-    await check('failed Auto Detect preserves manual alignment', `(() => {
+    await check('failed Auto align preserves manual alignment', `(async () => {
         const before = { x: 120, y: 110, r: 75 }; Object.assign(ball, before);
-        return runAutoDetect() === false && JSON.stringify(ball) === JSON.stringify(before) && toastContainer.lastElementChild.innerText.includes('alignment kept');
+        return await runAutoDetect() === false && JSON.stringify(ball) === JSON.stringify(before) && toastContainer.lastElementChild.innerText.includes('alignment kept');
     })()`);
     await evaluate(`Object.assign(ball, { x: 128, y: 128, r: 90 }); widthInput.value = 256; fovSlider.value = 360; showSourceToggle.checked = false;
         window.readProjectionPixel = (x, y) => {

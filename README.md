@@ -14,7 +14,7 @@ The application supports image and video uploads, providing an interactive 3D vi
 
 ## **Technical Details**
 
-This project is a single-file web application that relies on the following libraries:
+Open `index.html` in a browser, keeping `auto-align.js` beside it. The application uses:
 
 * Three.js for WebGL processing and 3D rendering.  
 * JSZip and FileSaver.js for handling sequence exports.
@@ -33,13 +33,28 @@ Open **Controls** below the source image for a compact shortcut reference.
 * Drag the 360° preview with a mouse, pen, or finger. Its arrow keys look around; Shift uses larger turns, and 0 resets the viewing direction.
 * Collapse buttons work with Enter and Space. Escape closes detection settings or Focus Mode and returns keyboard focus.
 
-Auto Detect updates alignment only when a circle has sufficient edge support around its circumference. If the result is uncertain, the existing alignment is preserved. The projection uses a radius proportional to `sin(angle / 2)`; the blind-spot fill stretches source pixels into missing coverage.
+**Auto align** compares several circle candidates, samples their boundaries at higher resolution, and uses robust fitting to reduce the influence of glare, clutter, and partial occlusion. Boundary coverage, fit error, and competing candidates determine whether to apply a result. Uncertain results preserve the current alignment.
+
+If several circles look plausible, roughly position the circle yourself and enable **Prefer current circle** in the detection settings. This hint chooses between supported candidates; it still requires a visible rim. Click **Cancel align**, move or resize the circle, or change media to cancel a running job. Export also cancels alignment before processing frames.
+
+Detection runs in a local background worker, with a bounded fallback if workers are unavailable. Images are refined at up to a 1536-pixel long edge. Video and webcam alignment use one captured frame and leave playback alone; they do not track a moving ball over time. Confidence is a heuristic, not a probability, and heavy occlusion or an elliptical boundary may require manual alignment.
+
+The projection uses a radius proportional to `sin(angle / 2)`; the blind-spot fill stretches source pixels into missing coverage.
 
 Loading and decoding errors remain visible in Media. A load that makes no progress for 30 seconds reports an error so another file can be selected.
 
 ## **Development Checks**
 
-Run the browser regression checks with Node.js 22 or later and Chrome or Chromium installed:
+Run the dependency-free detector tests with Node.js 22 or later:
+
+```sh
+node tests/auto-align.test.cjs
+node tests/auto-align.test.cjs --benchmark
+```
+
+The fixtures use analytic circle coordinates, fractional centres, cropping, glare, texture, occlusion, competing circles, and negative shapes/noise. The benchmark reports coordinate errors, false accepts/rejects, and timings for this synthetic corpus; these are not real-photo accuracy measurements.
+
+Run the browser regression checks with Chrome or Chromium installed:
 
 ```sh
 node tests/browser-regressions.mjs
@@ -49,6 +64,6 @@ Set `CHROME_PATH` if the browser is installed in a custom location. The checks u
 
 Set `MIRROR_BALL_TEST_VIDEO` to a local video path to also test importing, playback, and paused seeking with that file at its full source resolution.
 
-The suite checks GPU pixels against a sphere-reflection reference, circle detection with synthetic images, native pointer and keyboard interaction, and video/export regressions.
+The suite checks GPU pixels against a sphere-reflection reference, detection and worker cancellation/failure recovery, native pointer and keyboard interaction, video/export regressions, and opening the app directly from disk.
 
 Sequence export accepts 1–120 FPS, supports cancellation, and stops if encoded frames exceed 256 MB. Use a lower output resolution or a shorter clip for larger exports.

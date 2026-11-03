@@ -10,6 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Import FileSaver for saving the zip -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="auto-align.js"></script>
     
     <style>
         :root { color-scheme: dark; --bg: #141414; --border: #353535; --text: #e5e5e5; --muted: #a3a3a3; --error: #e4aaaa; }
@@ -165,6 +166,8 @@
                             <h4>Detection</h4>
                             <div class="field"><div class="field-label"><label for="inpSensitivity">Threshold</label><span id="valSensitivity">25%</span></div><input type="range" id="inpSensitivity" min="5" max="60" value="25" step="1"></div>
                             <div class="field"><div class="field-label"><label for="inpBias">Center bias</label><span id="valBias">Med</span></div><input type="range" id="inpBias" min="0" max="100" value="60" step="1"></div>
+                            <div class="option-row"><label for="preferCircleToggle" title="Use the current circle as a location and size hint">Prefer current circle</label><input id="preferCircleToggle" type="checkbox" aria-describedby="preferCircleHelp"></div>
+                            <p id="preferCircleHelp" class="sr-only">Use a rough manual alignment to choose between otherwise plausible circles. A supported rim is still required.</p>
                         </div>
                         <div class="canvas-container" id="sourceContainer">
                             <canvas id="sourceCanvas" tabindex="0" role="group" aria-label="Source alignment" aria-describedby="alignmentHelp">Interactive source alignment.</canvas>
@@ -175,6 +178,7 @@
                             <div id="sourceZoomControls" class="zoom-controls hidden" role="group" aria-label="Source zoom"><span id="sourceZoomValue" class="zoom-value">100%</span><button id="resetZoomBtn" class="button button-small" type="button" aria-label="Reset source view" aria-describedby="sourceZoomValue">Reset</button></div>
                         </div>
                         <span id="alignmentStatus" class="sr-only" role="status"></span>
+                        <span id="autoAlignStatus" class="sr-only" role="status"></span>
                     </div>
                     <div id="workspaceDivider" class="workspace-divider" role="separator" tabindex="0" aria-label="Resize source and result panes" aria-orientation="vertical" aria-controls="sourcePanel resultPanel" aria-describedby="splitterHelp" aria-valuemin="25" aria-valuemax="75" aria-valuenow="50" title="Drag to resize. Double-click to reset."></div>
                     <div class="image-panel" id="resultPanel">
@@ -253,6 +257,7 @@ const MAX_EXPORT_BYTES = 256 * 1024 * 1024;
 let maxTextureSize = 4096;
 let needsRender = false; 
 let sourceNeedsRender = false;
+let autoAlignJob = null;
 
 let ball = { x: 0, y: 0, r: 100 };
 let viewScale = 1;
@@ -311,6 +316,8 @@ const sourceZoomControls = document.getElementById('sourceZoomControls');
 const sourceZoomValue = document.getElementById('sourceZoomValue');
 const resetZoomBtn = document.getElementById('resetZoomBtn');
 const autoDetectBtn = document.getElementById('autoDetectBtn');
+const autoAlignStatus = document.getElementById('autoAlignStatus');
+const preferCircleToggle = document.getElementById('preferCircleToggle');
 const toggleDetectConfig = document.getElementById('toggleDetectConfig');
 const detectConfigPanel = document.getElementById('detectConfigPanel');
 const inpSensitivity = document.getElementById('inpSensitivity');
@@ -666,6 +673,7 @@ function updatePlaybackControls() {
 
 function resetMedia() {
     const requestId = ++mediaRequestId;
+    cancelAutoAlign();
     if (exportController) exportController.abort();
     completeMediaLoad();
     closeFocus();
@@ -854,96 +862,172 @@ function animate() {
  * --- CORE LOGIC ---
  */
 function detectCircle(pixels, width, height, sensitivity, bias) {
-    const gray = new Float32Array(width * height);
-    for (let i = 0; i < gray.length; i++) gray[i] = (pixels[i*4]*0.3 + pixels[i*4+1]*0.59 + pixels[i*4+2]*0.11) * pixels[i*4+3] / 255;
-    const mag = new Float32Array(gray.length), gx = new Float32Array(gray.length), gy = new Float32Array(gray.length);
-    let maxMag = 0;
-    for (let y = 1; y < height - 1; y++) {
-        for (let x = 1; x < width - 1; x++) {
-            const i = y * width + x;
-            gx[i] = -gray[i-width-1] + gray[i-width+1] - 2*gray[i-1] + 2*gray[i+1] - gray[i+width-1] + gray[i+width+1];
-            gy[i] = -gray[i-width-1] - 2*gray[i-width] - gray[i-width+1] + gray[i+width-1] + 2*gray[i+width] + gray[i+width+1];
-            mag[i] = Math.hypot(gx[i], gy[i]);
-            maxMag = Math.max(maxMag, mag[i]);
-        }
-    }
-    if (maxMag < 8) return null;
-    const threshold = Math.max(8, maxMag * sensitivity);
-    const minR = Math.max(6, Math.floor(Math.min(width, height) * 0.1));
-    const maxR = Math.floor(Math.min(width, height) * 0.5) - 2;
-    if (maxR <= minR) return null;
-    const edges = [], acc = new Float32Array(gray.length);
-    for (let i = 0; i < mag.length; i++) {
-        if (mag[i] <= threshold) continue;
-        edges.push(i);
-        const x = i % width, y = Math.floor(i / width), dx = gx[i] / mag[i], dy = gy[i] / mag[i];
-        for (let r = minR; r <= maxR; r += 2) {
-            for (const sign of [-1, 1]) {
-                const cx = Math.round(x + sign * dx * r), cy = Math.round(y + sign * dy * r);
-                if (cx >= 0 && cx < width && cy >= 0 && cy < height) acc[cy * width + cx]++;
-            }
-        }
-    }
-    if (edges.length < 36) return null;
-    let bestIdx = -1, maxVote = 0;
-    const diagonal = Math.hypot(width, height);
-    for (let i = 0; i < acc.length; i++) {
-        const distance = Math.hypot(i % width - width/2, Math.floor(i/width) - height/2);
-        const score = acc[i] * Math.max(0, 1 - distance / diagonal * bias);
-        if (score > maxVote) { maxVote = score; bestIdx = i; }
-    }
-    if (bestIdx < 0 || maxVote < 8) return null;
-    const cx = bestIdx % width, cy = Math.floor(bestIdx / width);
-    const histogram = new Float32Array(maxR + 4);
-    for (const i of edges) {
-        const dx = i % width - cx, dy = Math.floor(i/width) - cy, distance = Math.hypot(dx, dy);
-        if (distance < minR - 2 || distance > maxR + 2) continue;
-        const alignment = Math.abs((dx * gx[i] + dy * gy[i]) / (distance * mag[i]));
-        if (alignment >= 0.8) histogram[Math.round(distance)] += mag[i] * alignment;
-    }
-    // Score a narrow radius band in the downsampled image, normalized by circumference.
-    const radiusScore = r => (histogram[r-1] + histogram[r] + histogram[r+1]) / r;
-    let radius = 0, bestScore = 0;
-    for (let r = minR; r <= maxR; r++) {
-        const score = radiusScore(r);
-        if (score > bestScore) { radius = r; bestScore = score; }
-    }
-    if (!radius) return null;
-    const neighbors = [radius-10, radius-6, radius+6, radius+10].filter(r => r >= minR && r <= maxR);
-    const background = neighbors.reduce((sum, r) => sum + radiusScore(r), 0) / Math.max(1, neighbors.length);
-    if (bestScore < background * 1.5) return null;
-    const sectors = new Uint8Array(72);
-    for (const i of edges) {
-        const dx = i % width - cx, dy = Math.floor(i/width) - cy, distance = Math.hypot(dx, dy);
-        if (Math.abs(distance - radius) > 2.5 || !distance) continue;
-        if (Math.abs((dx * gx[i] + dy * gy[i]) / (distance * mag[i])) < 0.8) continue;
-        const angle = (Math.atan2(dy, dx) + Math.PI * 2) % (Math.PI * 2);
-        sectors[Math.floor(angle / (Math.PI * 2) * sectors.length)] = 1;
-    }
-    const coverage = sectors.reduce((sum, value) => sum + value, 0) / sectors.length;
-    if (coverage < 0.65) return null;
-    return { x: cx, y: cy, r: radius, confidence: coverage };
+    return MirrorBallAlign.detectCircle(pixels, width, height, sensitivity, bias);
 }
 
-function runAutoDetect() {
-    if (!sourceMedia || isExportingFrames || (sourceMedia === sourceVideoHidden && sourceVideoHidden.readyState < 2)) return false;
-    const width = sourceCanvas.width, height = sourceCanvas.height;
-    const scale = Math.min(1, 320 / Math.max(width, height));
-    const sw = Math.max(1, Math.floor(width * scale)), sh = Math.max(1, Math.floor(height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = sw; canvas.height = sh;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(sourceMedia, 0, 0, sw, sh);
-    const detected = detectCircle(ctx.getImageData(0, 0, sw, sh).data, sw, sh, Number(inpSensitivity.value) / 100, Number(inpBias.value) / 100);
-    if (!detected) {
-        showToast('No clear circle found. Existing alignment kept.', 'info');
-        return false;
+function syncAutoAlignButton() {
+    autoDetectBtn.textContent = autoAlignJob ? 'Cancel align' : 'Auto align';
+    autoDetectBtn.setAttribute('aria-label', autoAlignJob ? 'Cancel auto alignment' : 'Auto align circle');
+    autoDetectBtn.setAttribute('aria-busy', String(Boolean(autoAlignJob)));
+}
+
+function disposeAutoAlignJob(job) {
+    if (job.pending) {
+        const pending = job.pending;
+        job.pending = null;
+        clearTimeout(pending.timer);
+        pending.reject(new DOMException('Alignment cancelled.', 'AbortError'));
     }
-    ball.x = detected.x / scale; ball.y = detected.y / scale; ball.r = detected.r / scale;
-    updateParams();
-    announceAlignment();
-    showToast('Circle aligned.', 'success');
-    return true;
+    if (job.worker) { job.worker.terminate(); job.worker = null; }
+    if (job.url) { URL.revokeObjectURL(job.url); job.url = null; }
+}
+
+function cancelAutoAlign(announce = false) {
+    if (!autoAlignJob) return;
+    const job = autoAlignJob;
+    autoAlignJob = null;
+    job.cancelled = true;
+    disposeAutoAlignJob(job);
+    autoAlignStatus.textContent = '';
+    syncAutoAlignButton();
+    if (announce) showToast('Auto alignment cancelled.', 'info');
+}
+
+function alignmentWorkerMessage(event) {
+    const { id, type, pixels, width, height, candidates, options } = event.data;
+    try {
+        const result = type === 'analyze'
+            ? self.MirrorBallAlign.analyze(pixels, width, height, options)
+            : self.MirrorBallAlign.select(self.MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options);
+        self.postMessage({ id, result });
+    } catch (error) {
+        self.postMessage({ id, error: error.message || 'Circle detection failed.' });
+    }
+}
+
+function createAutoAlignWorker(job) {
+    try {
+        job.url = URL.createObjectURL(new Blob([MirrorBallAlign.workerSource(), '\nself.onmessage = ', alignmentWorkerMessage.toString(), ';'], { type: 'text/javascript' }));
+        job.worker = new Worker(job.url);
+    } catch (error) {
+        // Local pages or restrictive browser settings can prohibit worker startup.
+        if (job.url) URL.revokeObjectURL(job.url);
+        job.url = null;
+        job.worker = null;
+        return;
+    }
+    const rejectPending = error => {
+        job.workerError = error;
+        if (!job.pending) return;
+        const pending = job.pending; job.pending = null;
+        clearTimeout(pending.timer); pending.reject(error);
+    };
+    job.worker.onmessage = event => {
+        const pending = job.pending;
+        if (!pending || event.data?.id !== pending.id) return;
+        job.pending = null; clearTimeout(pending.timer);
+        if (event.data.error) pending.reject(new Error(event.data.error));
+        else pending.resolve(event.data.result);
+    };
+    job.worker.onerror = event => {
+        if (event.preventDefault) event.preventDefault();
+        rejectPending(new Error('Auto align could not finish. Try again.'));
+    };
+    job.worker.onmessageerror = () => rejectPending(new Error('Auto align returned an unreadable result. Try again.'));
+}
+
+function runAutoAlignTask(job, type, payload) {
+    return new Promise((resolve, reject) => {
+        if (job.cancelled) { reject(new DOMException('Alignment cancelled.', 'AbortError')); return; }
+        if (job.workerError) { reject(job.workerError); return; }
+        const id = ++job.taskId;
+        if (job.worker) {
+            const timer = setTimeout(() => {
+                if (job.pending?.id === id) job.pending = null;
+                reject(new Error('Auto alignment took too long. Try another frame or a rough manual circle.'));
+            }, 10000);
+            job.pending = { id, resolve, reject, timer };
+            try { job.worker.postMessage({ id, type, ...payload }, [payload.pixels.buffer]); }
+            catch (error) { job.pending = null; clearTimeout(timer); reject(error); }
+        } else {
+            // Each fallback stage is size-bounded and yields before computation.
+            const timer = setTimeout(() => {
+                job.pending = null;
+                if (job.cancelled) { reject(new DOMException('Alignment cancelled.', 'AbortError')); return; }
+                try {
+                    const { pixels, width, height, candidates, options } = payload;
+                    resolve(type === 'analyze' ? MirrorBallAlign.analyze(pixels, width, height, options)
+                        : MirrorBallAlign.select(MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options));
+                } catch (error) { reject(error); }
+            }, 0);
+            job.pending = { id, resolve, reject, timer };
+        }
+    });
+}
+
+function captureAutoAlignFrame(media, width, height) {
+    const scale = Math.min(1, 1536 / Math.max(width, height));
+    const fineCanvas = document.createElement('canvas');
+    fineCanvas.width = Math.max(1, Math.ceil(width * scale));
+    fineCanvas.height = Math.max(1, Math.ceil(height * scale));
+    const context = fineCanvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(media, 0, 0, width * scale, height * scale);
+    const fine = { pixels: context.getImageData(0, 0, fineCanvas.width, fineCanvas.height).data, width: fineCanvas.width, height: fineCanvas.height, scale };
+    const coarseScale = Math.min(1, 320 / Math.max(fine.width, fine.height));
+    const coarseCanvas = document.createElement('canvas');
+    coarseCanvas.width = Math.max(1, Math.ceil(fine.width * coarseScale));
+    coarseCanvas.height = Math.max(1, Math.ceil(fine.height * coarseScale));
+    const coarseContext = coarseCanvas.getContext('2d', { willReadFrequently: true });
+    coarseContext.drawImage(fineCanvas, 0, 0, fine.width * coarseScale, fine.height * coarseScale);
+    const coarse = { pixels: coarseContext.getImageData(0, 0, coarseCanvas.width, coarseCanvas.height).data, width: coarseCanvas.width, height: coarseCanvas.height, scale: scale * coarseScale };
+    fineCanvas.width = coarseCanvas.width = 0;
+    return { fine, coarse };
+}
+
+function isCurrentAutoAlignJob(job) {
+    return autoAlignJob === job && !job.cancelled && mediaRequestId === job.mediaId && sourceMedia === job.media &&
+        ball.x === job.alignment.x && ball.y === job.alignment.y && ball.r === job.alignment.r && !isExportingFrames;
+}
+
+async function runAutoDetect() {
+    if (autoAlignJob) { cancelAutoAlign(true); return false; }
+    if (!sourceMedia || isExportingFrames || (sourceMedia === sourceVideoHidden && sourceVideoHidden.readyState < 2)) return false;
+    const job = { mediaId: mediaRequestId, media: sourceMedia, alignment: { ...ball }, taskId: 0, worker: null, url: null, pending: null, cancelled: false };
+    autoAlignJob = job;
+    syncAutoAlignButton(); autoAlignStatus.textContent = 'Finding circle.';
+    try {
+        if (typeof MirrorBallAlign === 'undefined') throw new Error('Auto align is unavailable. Reload the app.');
+        const frames = captureAutoAlignFrame(job.media, sourceCanvas.width, sourceCanvas.height);
+        const settings = { sensitivity: Number(inpSensitivity.value) / 100, bias: Number(inpBias.value) / 100 };
+        const scaledSettings = scale => ({ ...settings, ...(preferCircleToggle.checked ? { prior: { x: job.alignment.x * scale, y: job.alignment.y * scale, r: job.alignment.r * scale } } : {}) });
+        createAutoAlignWorker(job);
+        const coarse = await runAutoAlignTask(job, 'analyze', { ...frames.coarse, options: scaledSettings(frames.coarse.scale) });
+        if (!isCurrentAutoAlignJob(job)) return false;
+        const candidates = (coarse.candidates || []).slice(0, 4);
+        if (coarse.reason === 'aligned-prior' && coarse.best && !candidates.includes(coarse.best)) candidates[candidates.length - 1] = coarse.best;
+        if (!candidates.length) { showToast('No clear circle found. Existing alignment kept.', 'info'); return false; }
+        autoAlignStatus.textContent = 'Refining circle boundary.';
+        const ratio = frames.fine.scale / frames.coarse.scale;
+        const result = await runAutoAlignTask(job, 'refine', { ...frames.fine,
+            candidates: candidates.map(candidate => ({ ...candidate, x: candidate.x * ratio, y: candidate.y * ratio, r: candidate.r * ratio })),
+            options: scaledSettings(frames.fine.scale) });
+        if (!isCurrentAutoAlignJob(job)) return false;
+        if (!result.best) {
+            showToast(result.reason === 'ambiguous' ? 'Several circles look plausible. Prefer current circle can use a rough manual alignment.' : 'No clear circle found. Existing alignment kept.', 'info');
+            return false;
+        }
+        const detected = result.best;
+        if (![detected.x, detected.y, detected.r].every(Number.isFinite) || detected.r <= 0) throw new Error('Auto align returned an invalid circle.');
+        ball.x = detected.x / frames.fine.scale; ball.y = detected.y / frames.fine.scale; ball.r = detected.r / frames.fine.scale;
+        updateParams(); announceAlignment(); showToast('Circle aligned.', 'success');
+        return true;
+    } catch (error) {
+        if (autoAlignJob === job && !job.cancelled && error.name !== 'AbortError') showToast(error.message || 'Auto alignment failed. Existing alignment kept.', 'error');
+        return false;
+    } finally {
+        disposeAutoAlignJob(job);
+        if (autoAlignJob === job) { autoAlignJob = null; autoAlignStatus.textContent = ''; syncAutoAlignButton(); }
+    }
 }
 
 function initProcessor() {
@@ -1106,12 +1190,13 @@ async function startFrameExport() {
         showToast('Wait for a video with a valid duration to finish loading.', 'error');
         return;
     }
+    cancelAutoAlign();
     updateProcessorParams();
     const controller = new AbortController();
     exportController = controller;
     const signal = controller.signal;
     const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn];
+    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn, preferCircleToggle];
     const previousDisabled = controls.map(control => control.disabled);
     controls.forEach(control => control.disabled = true);
     resetPointerInteractions();
@@ -1228,8 +1313,10 @@ toggleDetectConfig.addEventListener('click', () => setDetectConfigOpen(detectCon
 document.addEventListener('pointerdown', e => {
     if (!detectConfigPanel.contains(e.target) && !toggleDetectConfig.contains(e.target)) setDetectConfigOpen(false);
 });
-inpSensitivity.addEventListener('input', () => { valSensitivity.innerText = `${inpSensitivity.value}%`; });
-inpBias.addEventListener('input', () => { valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
+inpSensitivity.addEventListener('input', () => { cancelAutoAlign(); valSensitivity.innerText = `${inpSensitivity.value}%`; });
+inpBias.addEventListener('input', () => { cancelAutoAlign(); valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
+preferCircleToggle.addEventListener('change', () => cancelAutoAlign());
+window.addEventListener('pagehide', () => cancelAutoAlign());
 fovSlider.addEventListener('input', updateParams);
 pitchSlider.addEventListener('input', updateParams);
 yawSlider.addEventListener('input', updateParams);
@@ -1257,7 +1344,12 @@ playPauseBtn.addEventListener('click', toggleVideoPlayback);
 sourceVideoHidden.addEventListener('seeked', refreshVideoFrame);
 sourceVideoHidden.addEventListener('play', updatePlaybackControls);
 sourceVideoHidden.addEventListener('pause', updatePlaybackControls);
-videoSeek.addEventListener('input', () => { if (isVideo && sourceMedia && !isExportingFrames && Number.isFinite(sourceMedia.duration)) sourceMedia.currentTime = sourceMedia.duration * (videoSeek.value / 100); });
+videoSeek.addEventListener('input', () => {
+    if (isVideo && sourceMedia && !isExportingFrames && Number.isFinite(sourceMedia.duration)) {
+        cancelAutoAlign();
+        sourceMedia.currentTime = sourceMedia.duration * (videoSeek.value / 100);
+    }
+});
 downloadBtn.addEventListener('click', () => {
     if (!sourceMedia || isVideo || isExportingFrames) return;
     updateProcessorParams();
@@ -1309,6 +1401,7 @@ function onAlignmentKeyDown(e) {
     const step = e.altKey ? 10 : 1;
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key]) {
+        cancelAutoAlign();
         if (e.shiftKey) ball.r = Math.max(1, ball.r + (['ArrowRight', 'ArrowUp'].includes(e.key) ? step : -step));
         else { ball.x += arrows[e.key][0] * step; ball.y += arrows[e.key][1] * step; }
         updateParams(); announceAlignment();
@@ -1375,6 +1468,7 @@ function startAlignmentDrag(e) {
     else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; }
     else if (distC < ball.r) { isDragging=true; dragMode='move'; }
     else isPanning = true;
+    if (isDragging) cancelAutoAlign();
 }
 function updateAlignmentDrag(e) {
     if(!sourceMedia || isExportingFrames) return; const pos = getScreenPos(e);

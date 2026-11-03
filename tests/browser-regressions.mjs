@@ -6,10 +6,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runCorrectnessChecks } from './correctness-checks.mjs';
 import { runInteractionChecks } from './interaction-checks.mjs';
 import { runWorkspaceChecks } from './workspace-checks.mjs';
+import { runAutoAlignBrowserChecks } from './auto-align-browser-checks.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const chromePath = [process.env.CHROME_PATH,
@@ -25,11 +26,11 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const server = createServer((req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname;
     const file = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
-    if (!file.startsWith(root + sep) || !['/index.html', '/', '/example/example.jpg'].includes(pathname)) {
+    if (!file.startsWith(root + sep) || !['/index.html', '/', '/auto-align.js', '/example/example.jpg'].includes(pathname)) {
         res.writeHead(404).end();
         return;
     }
-    res.setHeader('Content-Type', file.endsWith('.html') ? 'text/html' : 'image/jpeg');
+    res.setHeader('Content-Type', file.endsWith('.html') ? 'text/html' : file.endsWith('.js') ? 'application/javascript' : 'image/jpeg');
     res.end(readFileSync(file));
 });
 let browser, socket, requestId = 0, checksPassed = 0;
@@ -120,6 +121,9 @@ try {
     await loadImage();
     await check('image import initializes a visible preview with a valid aspect',
         'renderer.domElement.width > 0 && renderer.domElement.height > 0 && Number.isFinite(camera.aspect)');
+    await check('the bundled photo supplies a supported alignment through the real worker', `(async () => {
+        return await runAutoDetect() === true && [ball.x, ball.y, ball.r].every(Number.isFinite) && ball.r > 0 && !autoAlignJob;
+    })()`);
     await check('output widths stay positive, even, and within the GPU limit', `(() => {
         for (const value of ['-5', '0', '1', '3', '129', '999999999', '']) {
             widthInput.value = value; updateParams();
@@ -147,6 +151,7 @@ try {
     }
     await evaluate('HTMLAnchorElement.prototype.click = window.originalAnchorClick; true;');
     await runCorrectnessChecks({ evaluate, check, waitFor, loadImage });
+    await runAutoAlignBrowserChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
     await runInteractionChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
     await runWorkspaceChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
 
@@ -211,6 +216,52 @@ try {
         await new Promise(resolve => setTimeout(resolve, 100));
         return sourceVideoHidden.paused && procTexture.version > version && procCanvas.toDataURL() !== before;
     })()`);
+    await check('auto align leaves a paused video at the same frame', `(async () => {
+        const time = sourceVideoHidden.currentTime, before = JSON.stringify(ball);
+        const result = await runAutoDetect();
+        return result === false && JSON.stringify(ball) === before && sourceVideoHidden.paused && sourceVideoHidden.currentTime === time && !autoAlignJob;
+    })()`);
+    await check('auto align captures video once and leaves playback running', `(async () => {
+        await seekVideoFrame(sourceVideoHidden, 0, new AbortController().signal);
+        await sourceVideoHidden.play();
+        const original = CanvasRenderingContext2D.prototype.drawImage;
+        let captures = 0;
+        CanvasRenderingContext2D.prototype.drawImage = function (media, ...args) {
+            if (media === sourceVideoHidden && this.canvas !== sourceCanvas) captures++;
+            return original.call(this, media, ...args);
+        };
+        try {
+            const time = sourceVideoHidden.currentTime;
+            await runAutoDetect();
+            return captures === 1 && !sourceVideoHidden.paused && sourceVideoHidden.currentTime >= time;
+        } finally {
+            CanvasRenderingContext2D.prototype.drawImage = original;
+            sourceVideoHidden.pause();
+        }
+    })()`);
+    await check('seeking cancels a pending alignment and settles its promise', `(async () => {
+        const OriginalWorker = window.Worker;
+        let terminated = false;
+        window.Worker = class { postMessage() {} terminate() { terminated = true; } };
+        try {
+            const pending = runAutoDetect();
+            videoSeek.value = 60; videoSeek.dispatchEvent(new Event('input'));
+            return await pending === false && terminated && !autoAlignJob && autoDetectBtn.textContent === 'Auto align';
+        } finally { window.Worker = OriginalWorker; }
+    })()`);
+    await evaluate(`(() => {
+        const OriginalWorker = window.Worker;
+        window.Worker = class { postMessage() {} terminate() { window.oldVideoAlignTerminated = true; } };
+        window.oldVideoAlignTerminated = false;
+        window.oldVideoAlignMedia = sourceMedia; window.oldVideoAlignId = mediaRequestId;
+        window.oldVideoAlignment = runAutoDetect();
+        window.Worker = OriginalWorker;
+        return true;
+    })()`);
+    await loadVideo();
+    await check('reusing the video element cancels alignment for its previous file', `(async () => {
+        return await window.oldVideoAlignment === false && sourceMedia === window.oldVideoAlignMedia && mediaRequestId !== window.oldVideoAlignId && window.oldVideoAlignTerminated && !autoAlignJob;
+    })()`);
     for (const fps of ['-25', '0', '', '121', '1e309']) {
         await check(`invalid FPS ${JSON.stringify(fps)} is rejected without locking controls`, `(async () => {
             fpsInput.value = '${fps}'; await startFrameExport();
@@ -233,15 +284,22 @@ try {
         return names.length === 3 && names[0].endsWith('.png') && first[0] === 137 && first[1] === 80;
     })()`);
     await evaluate(`window.originalToBlob = procCanvas.toBlob; window.pendingEncode = null;
+        window.workerBeforeExport = window.Worker;
+        window.Worker = class { postMessage() {} terminate() {} };
+        window.alignmentBeforeExport = runAutoDetect();
         procCanvas.toBlob = function (...args) { window.pendingEncode = () => window.originalToBlob.apply(this, args); };
-        window.exportPromise = startFrameExport(); true;`);
+        window.exportPromise = startFrameExport();
+        window.Worker = window.workerBeforeExport; true;`);
     await waitFor('window.pendingEncode !== null');
     await check('export locks media and optical controls while leaving Cancel available',
         "fileInput.disabled && webcamBtn.disabled && fovSlider.disabled && !exportFramesBtn.disabled && exportFramesBtn.innerText === 'Cancel Export'");
+    await check('export cancels pending alignment before locking controls', `(async () => {
+        return await window.alignmentBeforeExport === false && !autoAlignJob && autoDetectBtn.disabled && preferCircleToggle.disabled && autoDetectBtn.textContent === 'Auto align';
+    })()`);
     await check('cancelling export prevents download and restores controls', `(async () => {
         exportFramesBtn.click(); window.pendingEncode(); await window.exportPromise;
         procCanvas.toBlob = window.originalToBlob;
-        return window.savedArchives.length === 2 && !isExportingFrames && !fileInput.disabled && toastContainer.lastElementChild.innerText === 'Export cancelled.';
+        return window.savedArchives.length === 2 && !isExportingFrames && !fileInput.disabled && !autoDetectBtn.disabled && !preferCircleToggle.disabled && toastContainer.lastElementChild.innerText === 'Export cancelled.';
     })()`);
     await check('export refuses frames beyond its memory budget', `(async () => {
         procCanvas.toBlob = callback => callback({ size: MAX_EXPORT_BYTES + 1 });
@@ -324,7 +382,37 @@ try {
             await seekVideoFrame(sourceVideoHidden, sourceVideoHidden.duration / 2, new AbortController().signal);
             return sourceVideoHidden.paused && sourceVideoHidden.readyState >= 2;
         })()`);
+        await check('supplied-video detection settles without changing a paused frame or uncertain alignment', `(async () => {
+            const time = sourceVideoHidden.currentTime, before = JSON.stringify(ball);
+            const aligned = await runAutoDetect();
+            return !autoAlignJob && sourceVideoHidden.paused && sourceVideoHidden.currentTime === time
+                && (aligned ? [ball.x, ball.y, ball.r].every(Number.isFinite) && ball.r > 0
+                    : JSON.stringify(ball) === before && toastContainer.lastElementChild.textContent.includes('circle'));
+        })()`);
     }
+    // Local-file mode must load the companion module and self-contained Blob worker.
+    const localFixturePath = join(profile, 'circle.png');
+    const localFixture = await evaluate(`(() => {
+        const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 384;
+        const context = canvas.getContext('2d'); context.fillStyle = '#101010'; context.fillRect(0, 0, 512, 384);
+        context.fillStyle = '#eee'; context.beginPath(); context.arc(250.4, 180.7, 130.3, 0, Math.PI * 2); context.fill();
+        return canvas.toDataURL('image/png').split(',')[1];
+    })()`);
+    writeFileSync(localFixturePath, Buffer.from(localFixture, 'base64'));
+    await cdp('Page.navigate', { url: pathToFileURL(join(root, 'index.html')).href });
+    await waitFor("document.readyState === 'complete' && typeof procCanvas !== 'undefined' && typeof MirrorBallAlign !== 'undefined'");
+    await evaluate('maxTextureSize = 256; true;');
+    const localDocument = await cdp('DOM.getDocument');
+    const localInput = await cdp('DOM.querySelector', { nodeId: localDocument.root.nodeId, selector: '#fileInput' });
+    await cdp('DOM.setFileInputFiles', { nodeId: localInput.nodeId, files: [localFixturePath] });
+    await waitFor("sourceMedia?.tagName === 'IMG' && sourceCanvas.width === 512");
+    await check('opening from disk starts a real local alignment worker', `(() => {
+        window.localAlignment = runAutoDetect();
+        return location.protocol === 'file:' && autoAlignJob.worker instanceof Worker;
+    })()`);
+    await check('opening from disk refines a circle without fetching worker code', `(async () => {
+        return await window.localAlignment === true && Math.hypot(ball.x - 250.4, ball.y - 180.7) < 1 && Math.abs(ball.r - 130.3) < 1 && !autoAlignJob;
+    })()`);
     assert.deepEqual(exceptions, [], 'No uncaught browser exceptions');
     console.log(`All ${checksPassed} browser regression checks passed.`);
 } finally {
