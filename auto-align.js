@@ -395,9 +395,111 @@
         return results;
     }
 
+    let trackingBuffers = null;
+
+    function trackingField(pixels, width, height, candidate, options) {
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < 16 || height < 16 ||
+            width * height > 4194304 || !pixels || pixels.length < width * height * 4 || !candidate ||
+            ![candidate.x, candidate.y, candidate.r].every(Number.isFinite) || candidate.r < 6) return null;
+        const count = width * height;
+        if (!trackingBuffers || trackingBuffers.width !== width || trackingBuffers.height !== height) {
+            trackingBuffers = { width, height, gray: new Float32Array(count), gx: new Float32Array(count), gy: new Float32Array(count) };
+        }
+        const { gray, gx, gy } = trackingBuffers;
+        gx.fill(0); gy.fill(0);
+        const band = clamp(options.band ?? Math.max(5, candidate.r * 0.04), 2, Math.max(5, candidate.r * 0.16));
+        // Refinement permits centre and radius corrections of 2.2 bands each.
+        // Six bands include those moves, bilinear interpolation and final checks.
+        const margin = band * 6 + 4;
+        const visit = (padding, low, process) => {
+            const outer = candidate.r + margin + padding, inner = Math.max(0, candidate.r - margin - padding);
+            const top = Math.max(low, Math.ceil(candidate.y - outer - 0.5));
+            const bottom = Math.min(height - 1 - low, Math.floor(candidate.y + outer - 0.5));
+            for (let y = top; y <= bottom; y++) {
+                const dy = y + 0.5 - candidate.y;
+                const extent = Math.sqrt(Math.max(0, outer * outer - dy * dy));
+                const left = Math.max(low, Math.ceil(candidate.x - extent - 0.5));
+                const right = Math.min(width - 1 - low, Math.floor(candidate.x + extent - 0.5));
+                const gap = Math.abs(dy) < inner ? Math.sqrt(inner * inner - dy * dy) : 0;
+                const gapLeft = Math.floor(candidate.x - gap - 0.5), gapRight = Math.ceil(candidate.x + gap - 0.5);
+                if (!gap) { for (let x = left; x <= right; x++) process(y * width + x); }
+                else {
+                    for (let x = left; x <= Math.min(right, gapLeft); x++) process(y * width + x);
+                    for (let x = Math.max(left, gapRight); x <= right; x++) process(y * width + x);
+                }
+            }
+        };
+        // Only the rim and its Sobel neighbours need luminance conversion.
+        visit(2, 0, i => {
+            const j = i * 4;
+            gray[i] = (pixels[j] * 0.299 + pixels[j + 1] * 0.587 + pixels[j + 2] * 0.114) * pixels[j + 3] / 255;
+        });
+        const histogram = new Uint32Array(1450);
+        let maximum = 0, nonzero = 0;
+        visit(0, 1, i => {
+            const a = i - width, b = i + width;
+            const dx = -gray[a - 1] + gray[a + 1] - 2 * gray[i - 1] + 2 * gray[i + 1] - gray[b - 1] + gray[b + 1];
+            const dy = -gray[a - 1] - 2 * gray[a] - gray[a + 1] + gray[b - 1] + 2 * gray[b] + gray[b + 1];
+            const mag = Math.hypot(dx, dy);
+            gx[i] = dx; gy[i] = dy;
+            maximum = Math.max(maximum, mag);
+            if (mag >= 6) { histogram[Math.min(1449, Math.floor(mag))]++; nonzero++; }
+        });
+        if (maximum < 8 || nonzero < 32) return null;
+        let percentile = 0, total = 0;
+        for (; percentile < histogram.length - 1; percentile++) {
+            total += histogram[percentile];
+            if (total >= nonzero * 0.7) break;
+        }
+        const threshold = Math.max(7, Math.min(maximum * clamp(Number.isFinite(options.sensitivity) ? options.sensitivity : 0.25, 0.05, 0.9), percentile * 0.7));
+        return { width, height, gx, gy, threshold, maximum };
+    }
+
+    function track(pixels, width, height, candidate, options) {
+        options = Object.assign({ sensitivity: 0.25, maxIterations: 2 }, options);
+        const data = trackingField(pixels, width, height, candidate, options);
+        return data ? refineField(data, candidate, options) : null;
+    }
+
+    function createTracker() {
+        let estimate = null, pending = null, lastTime = null;
+        return {
+            update(candidate, time) {
+                if (!candidate || ![candidate.x, candidate.y, candidate.r, time].every(Number.isFinite) || candidate.r <= 0) {
+                    pending = null;
+                    return null;
+                }
+                if (lastTime !== null && time < lastTime) { estimate = null; pending = null; }
+                if (estimate) {
+                    const jump = Math.hypot(candidate.x - estimate.x, candidate.y - estimate.y) > estimate.r * 0.3 ||
+                        Math.abs(candidate.r - estimate.r) > estimate.r * 0.2;
+                    if (jump) {
+                        // A single unrelated circle must not pull tracking away.
+                        const confirmed = pending && Math.hypot(candidate.x - pending.x, candidate.y - pending.y) < pending.r * 0.08 &&
+                            Math.abs(candidate.r - pending.r) < pending.r * 0.06;
+                        pending = { ...candidate };
+                        if (!confirmed) return null;
+                        estimate = null;
+                    }
+                }
+                pending = null;
+                if (!estimate) estimate = { x: candidate.x, y: candidate.y, r: candidate.r };
+                else {
+                    const alpha = 1 - Math.exp(-Math.max(0, time - lastTime) / 0.07);
+                    const deadband = Math.max(0.35, estimate.r * 0.0005);
+                    for (const key of ['x', 'y', 'r']) {
+                        if (Math.abs(candidate[key] - estimate[key]) > deadband) estimate[key] += (candidate[key] - estimate[key]) * alpha;
+                    }
+                }
+                lastTime = time;
+                return { ...estimate };
+            }
+        };
+    }
+
     function detectCircle(pixels, width, height, sensitivity, bias) {
         return analyze(pixels, width, height, { sensitivity, bias }).best;
     }
 
-    return { analyze, refine, refineMany, detectCircle, select };
+    return { analyze, refine, refineMany, detectCircle, select, createTracker, track };
 });

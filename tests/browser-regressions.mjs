@@ -10,6 +10,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runCorrectnessChecks } from './correctness-checks.mjs';
 import { runInteractionChecks } from './interaction-checks.mjs';
 import { runWorkspaceChecks } from './workspace-checks.mjs';
+import { createVideoFixture } from './video-fixture.mjs';
+import { runLiveAlignmentChecks } from './live-alignment-checks.mjs';
 import { runAutoAlignBrowserChecks } from './auto-align-browser-checks.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,14 +72,14 @@ async function loadImage() {
         handleFileSelect(new File([blob], 'example.jpg', { type: 'image/jpeg' }));
         return true;
     })()`);
-    await waitFor("sourceMedia?.tagName === 'IMG'");
+    await waitFor("sourceMedia?.tagName === 'IMG' && (isExportingFrames || initialAutoAlignMediaId === null && (!autoAlignJob || autoAlignJob.mode === 'continuous'))");
 }
 async function loadVideo(path = nativeVideoPath) {
     const document = await cdp('DOM.getDocument');
     const input = await cdp('DOM.querySelector', { nodeId: document.root.nodeId, selector: '#fileInput' });
     await evaluate("fileInput.value = ''; true;");
     await cdp('DOM.setFileInputFiles', { nodeId: input.nodeId, files: [path] });
-    await waitFor('isVideo && sourceVideoHidden.readyState >= 2');
+    await waitFor("isVideo && sourceVideoHidden.readyState >= 2 && initialAutoAlignMediaId === null && (!autoAlignJob || autoAlignJob.mode === 'continuous')");
 }
 
 try {
@@ -155,32 +157,8 @@ try {
     await runInteractionChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
     await runWorkspaceChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
 
-    // Encode a deterministic red/blue VP8 clip and mux it into a minimal WebM.
-    await evaluate(`(async () => {
-        const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 128;
-        const ctx = canvas.getContext('2d'), frames = [];
-        const encoder = new VideoEncoder({ output(chunk) { const bytes = new Uint8Array(chunk.byteLength); chunk.copyTo(bytes); frames.push({ bytes, timestamp: chunk.timestamp }); }, error(error) { throw error; } });
-        encoder.configure({ codec: 'vp8', width: 128, height: 128, bitrate: 100000, framerate: 10, latencyMode: 'realtime' });
-        for (let i = 0; i < 10; i++) {
-            ctx.fillStyle = i < 5 ? '#ff0000' : '#0000ff'; ctx.fillRect(0, 0, 128, 128);
-            const frame = new VideoFrame(canvas, { timestamp: i * 100000, duration: 100000 });
-            encoder.encode(frame, { keyFrame: true }); frame.close();
-        }
-        await encoder.flush(); encoder.close();
-        const concat = parts => { const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0)); let offset = 0; for (const part of parts) { result.set(part, offset); offset += part.length; } return result; };
-        const integer = value => { const bytes = []; do { bytes.unshift(value & 255); value = Math.floor(value / 256); } while (value); return new Uint8Array(bytes); };
-        const size = value => { let length = 1; while (value >= 2 ** (7 * length) - 1) length++; let encoded = BigInt(value) | (1n << BigInt(7 * length)); const bytes = new Uint8Array(length); for (let i = length - 1; i >= 0; i--) { bytes[i] = Number(encoded & 255n); encoded >>= 8n; } return bytes; };
-        const text = value => new TextEncoder().encode(value);
-        const element = (id, data) => concat([new Uint8Array(id.match(/../g).map(byte => parseInt(byte, 16))), size(data.length), data]);
-        const number = (id, value) => element(id, integer(value));
-        const duration = new Uint8Array(8); new DataView(duration.buffer).setFloat64(0, 1000);
-        const header = element('1a45dfa3', concat([number('4286', 1), number('42f7', 1), number('42f2', 4), number('42f3', 8), element('4282', text('webm')), number('4287', 4), number('4285', 2)]));
-        const info = element('1549a966', concat([number('2ad7b1', 1000000), element('4489', duration), element('4d80', text('Mirror Ball tests')), element('5741', text('Mirror Ball tests'))]));
-        const track = element('1654ae6b', element('ae', concat([number('d7', 1), number('73c5', 1), number('83', 1), element('86', text('V_VP8')), number('23e383', 100000000), element('e0', concat([number('b0', 128), number('ba', 128)]))])));
-        const blocks = frames.map(frame => { const prefix = new Uint8Array([0x81, 0, 0, 0x80]); new DataView(prefix.buffer).setInt16(1, frame.timestamp / 1000); return element('a3', concat([prefix, frame.bytes])); });
-        const cluster = element('1f43b675', concat([number('e7', 0), ...blocks]));
-        window.testVideoFile = new File([header, element('18538067', concat([info, track, cluster]))], 'colors.webm', { type: 'video/webm' }); return true;
-    })()`);
+    await evaluate(`window.createTestVideo = ${createVideoFixture.toString()};
+        window.videoFixturePromise = window.createTestVideo().then(file => { window.testVideoFile = file; return true; }); window.videoFixturePromise;`);
     const videoBytes = await evaluate('(async () => Array.from(new Uint8Array(await window.testVideoFile.arrayBuffer())))()');
     writeFileSync(nativeVideoPath, Buffer.from(videoBytes));
     await evaluate(`window.metadataState = null;
@@ -369,6 +347,7 @@ try {
     await waitFor("toastContainer.lastElementChild?.innerText.includes('Unable to load this video')");
     await check('decode failures leave media controls in a recoverable state',
         "!sourceMedia && !isVideo && !isWebcam && !fileInput.disabled && exportFramesBtn.style.display === 'none'");
+    await runLiveAlignmentChecks({ cdp, evaluate, check, waitFor, loadImage, loadVideo, delay, profile });
     if (process.env.MIRROR_BALL_TEST_VIDEO) {
         await evaluate('maxTextureSize = Number(widthInput.max); true;');
         await loadVideo(resolve(process.env.MIRROR_BALL_TEST_VIDEO));
@@ -405,7 +384,7 @@ try {
     const localDocument = await cdp('DOM.getDocument');
     const localInput = await cdp('DOM.querySelector', { nodeId: localDocument.root.nodeId, selector: '#fileInput' });
     await cdp('DOM.setFileInputFiles', { nodeId: localInput.nodeId, files: [localFixturePath] });
-    await waitFor("sourceMedia?.tagName === 'IMG' && sourceCanvas.width === 512");
+    await waitFor("sourceMedia?.tagName === 'IMG' && sourceCanvas.width === 512 && initialAutoAlignMediaId === null && !autoAlignJob");
     await check('opening from disk starts a real local alignment worker', `(() => {
         window.localAlignment = runAutoDetect();
         return location.protocol === 'file:' && autoAlignJob.worker instanceof Worker;

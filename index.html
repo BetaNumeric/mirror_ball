@@ -168,6 +168,8 @@
                             <div class="field"><div class="field-label"><label for="inpBias">Center bias</label><span id="valBias">Med</span></div><input type="range" id="inpBias" min="0" max="100" value="60" step="1"></div>
                             <div class="option-row"><label for="preferCircleToggle" title="Use the current circle as a location and size hint">Prefer current circle</label><input id="preferCircleToggle" type="checkbox" aria-describedby="preferCircleHelp"></div>
                             <p id="preferCircleHelp" class="sr-only">Use a rough manual alignment to choose between otherwise plausible circles. A supported rim is still required.</p>
+                            <div id="continuousAlignControl" class="option-row hidden"><label for="continuousAlignToggle" title="Follow the circle during playback and align each exported frame">Continuous align</label><input id="continuousAlignToggle" type="checkbox" aria-describedby="continuousAlignHelp"></div>
+                            <p id="continuousAlignHelp" class="sr-only">Follow the latest video or camera frame, keeping the last reliable circle when detection is uncertain. Manual circle edits turn tracking off. Video exports align every exported frame.</p>
                         </div>
                         <div class="canvas-container" id="sourceContainer">
                             <canvas id="sourceCanvas" tabindex="0" role="group" aria-label="Source alignment" aria-describedby="alignmentHelp">Interactive source alignment.</canvas>
@@ -258,6 +260,10 @@ let maxTextureSize = 4096;
 let needsRender = false; 
 let sourceNeedsRender = false;
 let autoAlignJob = null;
+let initialAutoAlignMediaId = null;
+let videoFrameWatch = null;
+let videoFrameSerial = 0;
+let videoFrameTime = null;
 
 let ball = { x: 0, y: 0, r: 100 };
 let viewScale = 1;
@@ -318,6 +324,8 @@ const resetZoomBtn = document.getElementById('resetZoomBtn');
 const autoDetectBtn = document.getElementById('autoDetectBtn');
 const autoAlignStatus = document.getElementById('autoAlignStatus');
 const preferCircleToggle = document.getElementById('preferCircleToggle');
+const continuousAlignControl = document.getElementById('continuousAlignControl');
+const continuousAlignToggle = document.getElementById('continuousAlignToggle');
 const toggleDetectConfig = document.getElementById('toggleDetectConfig');
 const detectConfigPanel = document.getElementById('detectConfigPanel');
 const inpSensitivity = document.getElementById('inpSensitivity');
@@ -649,6 +657,7 @@ function stopWebcam() {
 }
 
 function updateMediaControls() {
+    continuousAlignControl.classList.toggle('hidden', !isVideo && !isWebcam);
     videoControls.classList.toggle('hidden', !isVideo);
     fpsControl.classList.toggle('hidden', !isVideo);
     exportFramesBtn.style.display = isVideo ? 'flex' : 'none';
@@ -674,6 +683,7 @@ function updatePlaybackControls() {
 function resetMedia() {
     const requestId = ++mediaRequestId;
     cancelAutoAlign();
+    stopVideoFrameWatch();
     if (exportController) exportController.abort();
     completeMediaLoad();
     closeFocus();
@@ -732,6 +742,8 @@ function prepareVideoSource(requestId, webcam) {
             isWebcam = webcam;
             isVideo = !webcam;
             webcamPending = false;
+            initialAutoAlignMediaId = requestId;
+            startVideoFrameWatch(requestId);
             initWorkspace();
         }
         refreshVideoFrame();
@@ -762,6 +774,62 @@ function refreshVideoFrame() {
     updatePlaybackControls();
 }
 
+function stopVideoFrameWatch() {
+    if (videoFrameWatch?.callbackId !== null && videoFrameWatch?.callbackId !== undefined) {
+        sourceVideoHidden.cancelVideoFrameCallback(videoFrameWatch.callbackId);
+    }
+    videoFrameWatch = null;
+    videoFrameTime = null;
+}
+
+function recordDecodedVideoFrame(watch, time) {
+    if (videoFrameWatch !== watch || watch.mediaId !== mediaRequestId || sourceMedia !== sourceVideoHidden ||
+        sourceVideoHidden.readyState < 2 || sourceVideoHidden.seeking) return;
+    watch.hasFrame = true;
+    videoFrameTime = time;
+    videoFrameSerial++;
+    if (!isExportingFrames && !document.hidden) refreshVideoFrame();
+    const job = autoAlignJob;
+    if (job?.mode === 'continuous' && job.frameWait) {
+        const wait = job.frameWait; job.frameWait = null;
+        if (isCurrentAutoAlignJob(job)) wait.resolve();
+        else wait.reject(new DOMException('Alignment cancelled.', 'AbortError'));
+    }
+}
+
+function startVideoFrameWatch(requestId) {
+    stopVideoFrameWatch();
+    const watch = { mediaId: requestId, callbackId: null, native: typeof sourceVideoHidden.requestVideoFrameCallback === 'function',
+        hasFrame: false, lastDecodedFrames: null, lastTime: null };
+    videoFrameWatch = watch;
+    if (!watch.native) return;
+    const onFrame = (now, metadata) => {
+        if (videoFrameWatch !== watch || mediaRequestId !== requestId) return;
+        // Keep watching while detection is busy: only the latest serial is retained.
+        watch.callbackId = sourceVideoHidden.requestVideoFrameCallback(onFrame);
+        recordDecodedVideoFrame(watch, metadata.mediaTime);
+    };
+    watch.callbackId = sourceVideoHidden.requestVideoFrameCallback(onFrame);
+}
+
+function pollVideoFrameWatch() {
+    const watch = videoFrameWatch;
+    if (!watch || watch.mediaId !== mediaRequestId || sourceVideoHidden.readyState < 2 || sourceVideoHidden.seeking) return;
+    if (watch.native) {
+        // Metadata can precede the first decoded frame without a usable event.
+        if (!watch.hasFrame) recordDecodedVideoFrame(watch, sourceVideoHidden.currentTime);
+        return;
+    }
+    const decoded = sourceVideoHidden.getVideoPlaybackQuality?.().totalVideoFrames;
+    const time = sourceVideoHidden.currentTime;
+    const hasFrameCount = Number.isFinite(decoded) && decoded > 0;
+    if (!watch.hasFrame || (hasFrameCount ? decoded !== watch.lastDecodedFrames : time !== watch.lastTime)) {
+        watch.lastDecodedFrames = decoded;
+        watch.lastTime = time;
+        recordDecodedVideoFrame(watch, time);
+    }
+}
+
 function handleFileSelect(file) {
     if (!file) return;
     const isVideoFile = file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|ogv|ogg|avi|mpeg|mpg|mts|m2ts)$/i.test(file.name);
@@ -781,6 +849,7 @@ function handleFileSelect(file) {
         img.onload = () => {
             if (requestId !== mediaRequestId) return;
             sourceMedia = img;
+            initialAutoAlignMediaId = requestId;
             initWorkspace();
         };
         img.onerror = () => mediaLoadFailed(requestId, 'Unable to load this image. Try another file or format.');
@@ -830,18 +899,10 @@ function initWorkspace() {
 function animate() {
     window.loopId = requestAnimationFrame(animate);
     if (!sourceMedia || isExportingFrames) return;
+    pollVideoFrameWatch();
+    maybeStartAutomaticAlignment();
 
     let forceUpdate = needsRender;
-
-    if ((isVideo && !sourceVideoHidden.paused) || isWebcam) {
-        if (sourceVideoHidden.readyState >= sourceVideoHidden.HAVE_CURRENT_DATA) {
-            procTexture.needsUpdate = true;
-            forceUpdate = true;
-        }
-        if (isVideo) {
-            updatePlaybackControls();
-        }
-    }
 
     if (forceUpdate) {
         renderProcessor();
@@ -866,12 +927,16 @@ function detectCircle(pixels, width, height, sensitivity, bias) {
 }
 
 function syncAutoAlignButton() {
-    autoDetectBtn.textContent = autoAlignJob ? 'Cancel align' : 'Auto align';
-    autoDetectBtn.setAttribute('aria-label', autoAlignJob ? 'Cancel auto alignment' : 'Auto align circle');
+    autoDetectBtn.textContent = autoAlignJob?.mode === 'continuous' ? 'Stop align' : autoAlignJob ? 'Cancel align' : 'Auto align';
+    autoDetectBtn.setAttribute('aria-label', autoAlignJob?.mode === 'continuous' ? 'Stop continuous alignment' : autoAlignJob ? 'Cancel auto alignment' : 'Auto align circle');
     autoDetectBtn.setAttribute('aria-busy', String(Boolean(autoAlignJob)));
 }
 
 function disposeAutoAlignJob(job) {
+    if (job.frameWait) {
+        const wait = job.frameWait; job.frameWait = null;
+        wait.cancel(); wait.reject(new DOMException('Alignment cancelled.', 'AbortError'));
+    }
     if (job.pending) {
         const pending = job.pending;
         job.pending = null;
@@ -880,9 +945,11 @@ function disposeAutoAlignJob(job) {
     }
     if (job.worker) { job.worker.terminate(); job.worker = null; }
     if (job.url) { URL.revokeObjectURL(job.url); job.url = null; }
+    if (job.capture) for (const canvas of Object.values(job.capture)) canvas.width = 0;
 }
 
 function cancelAutoAlign(announce = false) {
+    initialAutoAlignMediaId = null;
     if (!autoAlignJob) return;
     const job = autoAlignJob;
     autoAlignJob = null;
@@ -893,12 +960,30 @@ function cancelAutoAlign(announce = false) {
     if (announce) showToast('Auto alignment cancelled.', 'info');
 }
 
+function stopAutoAlignForManualEdit() {
+    continuousAlignToggle.checked = false;
+    cancelAutoAlign();
+}
+
+function maybeStartAutomaticAlignment() {
+    if (!sourceMedia || autoAlignJob || isExportingFrames || document.hidden ||
+        (sourceMedia === sourceVideoHidden && (sourceVideoHidden.readyState < 2 || sourceVideoHidden.seeking))) return;
+    if (initialAutoAlignMediaId === mediaRequestId) {
+        initialAutoAlignMediaId = null;
+        void runAutoDetect({ mode: 'load' });
+    } else if (continuousAlignToggle.checked && (isVideo || isWebcam)) {
+        void runContinuousAlign();
+    }
+}
+
 function alignmentWorkerMessage(event) {
     const { id, type, pixels, width, height, candidates, options } = event.data;
     try {
+        const circles = type === 'track' ? self.MirrorBallAlign.track(pixels, width, height, candidates[0], options) : null;
         const result = type === 'analyze'
             ? self.MirrorBallAlign.analyze(pixels, width, height, options)
-            : self.MirrorBallAlign.select(self.MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options);
+            : self.MirrorBallAlign.select(type === 'track' ? (circles ? [circles] : [])
+                : self.MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options);
         self.postMessage({ id, result });
     } catch (error) {
         self.postMessage({ id, error: error.message || 'Circle detection failed.' });
@@ -918,6 +1003,10 @@ function createAutoAlignWorker(job) {
     }
     const rejectPending = error => {
         job.workerError = error;
+        if (job.frameWait) {
+            const wait = job.frameWait; job.frameWait = null;
+            wait.cancel(); wait.reject(error);
+        }
         if (!job.pending) return;
         const pending = job.pending; job.pending = null;
         clearTimeout(pending.timer); pending.reject(error);
@@ -933,7 +1022,9 @@ function createAutoAlignWorker(job) {
         if (event.preventDefault) event.preventDefault();
         rejectPending(new Error('Auto align could not finish. Try again.'));
     };
-    job.worker.onmessageerror = () => rejectPending(new Error('Auto align returned an unreadable result. Try again.'));
+    const onMessageError = () => rejectPending(new Error('Auto align returned an unreadable result. Try again.'));
+    if (job.worker.addEventListener) job.worker.addEventListener('messageerror', onMessageError);
+    else job.worker.onmessageerror = onMessageError;
 }
 
 function runAutoAlignTask(job, type, payload) {
@@ -956,8 +1047,10 @@ function runAutoAlignTask(job, type, payload) {
                 if (job.cancelled) { reject(new DOMException('Alignment cancelled.', 'AbortError')); return; }
                 try {
                     const { pixels, width, height, candidates, options } = payload;
+                    const tracked = type === 'track' ? MirrorBallAlign.track(pixels, width, height, candidates[0], options) : null;
                     resolve(type === 'analyze' ? MirrorBallAlign.analyze(pixels, width, height, options)
-                        : MirrorBallAlign.select(MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options));
+                        : MirrorBallAlign.select(type === 'track' ? (tracked ? [tracked] : [])
+                            : MirrorBallAlign.refineMany(pixels, width, height, candidates, options), options));
                 } catch (error) { reject(error); }
             }, 0);
             job.pending = { id, resolve, reject, timer };
@@ -965,68 +1058,157 @@ function runAutoAlignTask(job, type, payload) {
     });
 }
 
-function captureAutoAlignFrame(media, width, height) {
-    const scale = Math.min(1, 1536 / Math.max(width, height));
-    const fineCanvas = document.createElement('canvas');
-    fineCanvas.width = Math.max(1, Math.ceil(width * scale));
-    fineCanvas.height = Math.max(1, Math.ceil(height * scale));
+function captureAutoAlignFrame(media, width, height, maxEdge = 1536, cache = {}, needCoarse = true) {
+    const scale = Math.min(1, maxEdge / Math.max(width, height));
+    const fineCanvas = cache.fine || (cache.fine = document.createElement('canvas'));
+    const fineWidth = Math.max(1, Math.ceil(width * scale)), fineHeight = Math.max(1, Math.ceil(height * scale));
+    if (fineCanvas.width !== fineWidth) fineCanvas.width = fineWidth;
+    if (fineCanvas.height !== fineHeight) fineCanvas.height = fineHeight;
     const context = fineCanvas.getContext('2d', { willReadFrequently: true });
+    context.clearRect(0, 0, fineCanvas.width, fineCanvas.height);
     context.drawImage(media, 0, 0, width * scale, height * scale);
     const fine = { pixels: context.getImageData(0, 0, fineCanvas.width, fineCanvas.height).data, width: fineCanvas.width, height: fineCanvas.height, scale };
+    if (!needCoarse) return { fine };
     const coarseScale = Math.min(1, 320 / Math.max(fine.width, fine.height));
-    const coarseCanvas = document.createElement('canvas');
-    coarseCanvas.width = Math.max(1, Math.ceil(fine.width * coarseScale));
-    coarseCanvas.height = Math.max(1, Math.ceil(fine.height * coarseScale));
+    const coarseCanvas = cache.coarse || (cache.coarse = document.createElement('canvas'));
+    const coarseWidth = Math.max(1, Math.ceil(fine.width * coarseScale)), coarseHeight = Math.max(1, Math.ceil(fine.height * coarseScale));
+    if (coarseCanvas.width !== coarseWidth) coarseCanvas.width = coarseWidth;
+    if (coarseCanvas.height !== coarseHeight) coarseCanvas.height = coarseHeight;
     const coarseContext = coarseCanvas.getContext('2d', { willReadFrequently: true });
+    coarseContext.clearRect(0, 0, coarseCanvas.width, coarseCanvas.height);
     coarseContext.drawImage(fineCanvas, 0, 0, fine.width * coarseScale, fine.height * coarseScale);
     const coarse = { pixels: coarseContext.getImageData(0, 0, coarseCanvas.width, coarseCanvas.height).data, width: coarseCanvas.width, height: coarseCanvas.height, scale: scale * coarseScale };
-    fineCanvas.width = coarseCanvas.width = 0;
     return { fine, coarse };
 }
 
 function isCurrentAutoAlignJob(job) {
     return autoAlignJob === job && !job.cancelled && mediaRequestId === job.mediaId && sourceMedia === job.media &&
-        ball.x === job.alignment.x && ball.y === job.alignment.y && ball.r === job.alignment.r && !isExportingFrames;
+        ball.x === job.alignment.x && ball.y === job.alignment.y && ball.r === job.alignment.r &&
+        (job.mode === 'export' ? isExportingFrames && exportController === job.controller && !job.controller.signal.aborted : !isExportingFrames);
 }
 
-async function runAutoDetect() {
-    if (autoAlignJob) { cancelAutoAlign(true); return false; }
-    if (!sourceMedia || isExportingFrames || (sourceMedia === sourceVideoHidden && sourceVideoHidden.readyState < 2)) return false;
-    const job = { mediaId: mediaRequestId, media: sourceMedia, alignment: { ...ball }, taskId: 0, worker: null, url: null, pending: null, cancelled: false };
+function createAutoAlignJob(mode) {
+    if (typeof MirrorBallAlign === 'undefined') throw new Error('Auto align is unavailable. Reload the app.');
+    const job = { mode, mediaId: mediaRequestId, media: sourceMedia, alignment: { ...ball }, taskId: 0,
+        worker: null, url: null, pending: null, frameWait: null, cancelled: false, misses: 0, locked: false,
+        tracker: MirrorBallAlign.createTracker(), lastFrameTime: null, capture: {}, controller: exportController };
     autoAlignJob = job;
-    syncAutoAlignButton(); autoAlignStatus.textContent = 'Finding circle.';
-    try {
-        if (typeof MirrorBallAlign === 'undefined') throw new Error('Auto align is unavailable. Reload the app.');
-        const frames = captureAutoAlignFrame(job.media, sourceCanvas.width, sourceCanvas.height);
-        const settings = { sensitivity: Number(inpSensitivity.value) / 100, bias: Number(inpBias.value) / 100 };
-        const scaledSettings = scale => ({ ...settings, ...(preferCircleToggle.checked ? { prior: { x: job.alignment.x * scale, y: job.alignment.y * scale, r: job.alignment.r * scale } } : {}) });
-        createAutoAlignWorker(job);
+    syncAutoAlignButton();
+    createAutoAlignWorker(job);
+    return job;
+}
+
+function finishAutoAlignJob(job) {
+    disposeAutoAlignJob(job);
+    if (autoAlignJob === job) { autoAlignJob = null; autoAlignStatus.textContent = ''; syncAutoAlignButton(); }
+}
+
+async function detectAlignmentFrame(job, { maxEdge = 1536, fullSearch = true } = {}) {
+    const frames = captureAutoAlignFrame(job.media, sourceCanvas.width, sourceCanvas.height, maxEdge, job.capture, fullSearch);
+    const settings = { sensitivity: Number(inpSensitivity.value) / 100, bias: Number(inpBias.value) / 100 };
+    const usePrior = preferCircleToggle.checked || job.mode === 'continuous' || job.mode === 'export';
+    const scaledSettings = scale => ({ ...settings, ...(usePrior ? { prior: {
+        x: job.alignment.x * scale, y: job.alignment.y * scale, r: job.alignment.r * scale
+    } } : {}) });
+    let candidates;
+    if (fullSearch) {
+        autoAlignStatus.textContent = 'Finding circle.';
         const coarse = await runAutoAlignTask(job, 'analyze', { ...frames.coarse, options: scaledSettings(frames.coarse.scale) });
-        if (!isCurrentAutoAlignJob(job)) return false;
-        const candidates = (coarse.candidates || []).slice(0, 4);
+        if (!isCurrentAutoAlignJob(job)) return { circle: null, reason: 'cancelled' };
+        candidates = (coarse.candidates || []).slice(0, 4);
         if (coarse.reason === 'aligned-prior' && coarse.best && !candidates.includes(coarse.best)) candidates[candidates.length - 1] = coarse.best;
-        if (!candidates.length) { showToast('No clear circle found. Existing alignment kept.', 'info'); return false; }
-        autoAlignStatus.textContent = 'Refining circle boundary.';
+        if (!candidates.length) return { circle: null, reason: coarse.reason };
         const ratio = frames.fine.scale / frames.coarse.scale;
-        const result = await runAutoAlignTask(job, 'refine', { ...frames.fine,
-            candidates: candidates.map(candidate => ({ ...candidate, x: candidate.x * ratio, y: candidate.y * ratio, r: candidate.r * ratio })),
-            options: scaledSettings(frames.fine.scale) });
+        candidates = candidates.map(candidate => ({ ...candidate, x: candidate.x * ratio, y: candidate.y * ratio, r: candidate.r * ratio }));
+    } else {
+        candidates = [{ x: job.alignment.x * frames.fine.scale, y: job.alignment.y * frames.fine.scale, r: job.alignment.r * frames.fine.scale }];
+    }
+    autoAlignStatus.textContent = 'Refining circle boundary.';
+    const result = await runAutoAlignTask(job, fullSearch ? 'refine' : 'track', { ...frames.fine, candidates, options: scaledSettings(frames.fine.scale) });
+    if (!isCurrentAutoAlignJob(job)) return { circle: null, reason: 'cancelled' };
+    if (!result.best) return { circle: null, reason: result.reason };
+    const detected = result.best;
+    if (![detected.x, detected.y, detected.r].every(Number.isFinite) || detected.r <= 0) throw new Error('Auto align returned an invalid circle.');
+    return { circle: { x: detected.x / frames.fine.scale, y: detected.y / frames.fine.scale, r: detected.r / frames.fine.scale }, reason: result.reason };
+}
+
+function applyAutoAlignment(job, circle) {
+    Object.assign(ball, circle);
+    job.alignment = { ...ball };
+    updateParams();
+}
+
+async function runAutoDetect({ mode = 'manual' } = {}) {
+    initialAutoAlignMediaId = null;
+    if (autoAlignJob) { continuousAlignToggle.checked = false; cancelAutoAlign(true); return false; }
+    if (!sourceMedia || isExportingFrames || (sourceMedia === sourceVideoHidden && sourceVideoHidden.readyState < 2)) return false;
+    let job;
+    try {
+        job = createAutoAlignJob(mode);
+        const result = await detectAlignmentFrame(job);
         if (!isCurrentAutoAlignJob(job)) return false;
-        if (!result.best) {
-            showToast(result.reason === 'ambiguous' ? 'Several circles look plausible. Prefer current circle can use a rough manual alignment.' : 'No clear circle found. Existing alignment kept.', 'info');
+        if (!result.circle) {
+            if (mode === 'manual') showToast(result.reason === 'ambiguous'
+                ? 'Several circles look plausible. Prefer current circle can use a rough manual alignment.'
+                : 'No clear circle found. Existing alignment kept.', 'info');
             return false;
         }
-        const detected = result.best;
-        if (![detected.x, detected.y, detected.r].every(Number.isFinite) || detected.r <= 0) throw new Error('Auto align returned an invalid circle.');
-        ball.x = detected.x / frames.fine.scale; ball.y = detected.y / frames.fine.scale; ball.r = detected.r / frames.fine.scale;
-        updateParams(); announceAlignment(); showToast('Circle aligned.', 'success');
+        applyAutoAlignment(job, result.circle);
+        announceAlignment();
+        if (mode === 'manual') showToast('Circle aligned.', 'success');
         return true;
     } catch (error) {
-        if (autoAlignJob === job && !job.cancelled && error.name !== 'AbortError') showToast(error.message || 'Auto alignment failed. Existing alignment kept.', 'error');
+        if ((!job || autoAlignJob === job && !job.cancelled) && error.name !== 'AbortError') showToast(error.message || 'Auto alignment failed. Existing alignment kept.', 'error');
         return false;
     } finally {
-        disposeAutoAlignJob(job);
-        if (autoAlignJob === job) { autoAlignJob = null; autoAlignStatus.textContent = ''; syncAutoAlignButton(); }
+        if (job) finishAutoAlignJob(job);
+    }
+}
+
+function waitForAlignmentFrame(job, previousSerial) {
+    return new Promise((resolve, reject) => {
+        if (!isCurrentAutoAlignJob(job)) { reject(new DOMException('Alignment cancelled.', 'AbortError')); return; }
+        if (job.workerError) { reject(job.workerError); return; }
+        if (sourceVideoHidden.readyState >= 2 && !sourceVideoHidden.seeking && videoFrameSerial !== previousSerial) { resolve(); return; }
+        job.frameWait = { cancel() {}, resolve, reject };
+    });
+}
+
+async function trackAlignmentFrame(job, time, maxEdge) {
+    job.alignment = { ...ball };
+    const fullSearch = !job.locked || job.misses >= 2 || job.lastFrameTime !== null && time < job.lastFrameTime;
+    job.lastFrameTime = time;
+    const result = await detectAlignmentFrame(job, { maxEdge, fullSearch });
+    if (!isCurrentAutoAlignJob(job)) return false;
+    // Do not apply an old capture after a slow live detection or a programmatic seek.
+    if (job.mode === 'continuous' && (sourceVideoHidden.seeking || Math.abs(sourceVideoHidden.currentTime - time) > 0.5)) return false;
+    const circle = job.tracker.update(result.circle, time);
+    if (circle) {
+        applyAutoAlignment(job, circle);
+        job.locked = true; job.misses = 0;
+    } else job.misses++;
+    return Boolean(circle);
+}
+
+async function runContinuousAlign() {
+    let job;
+    try {
+        job = createAutoAlignJob('continuous');
+        if (!job.worker) throw new Error('Continuous align requires background workers. Use Auto align for this browser.');
+        while (isCurrentAutoAlignJob(job)) {
+            const serial = videoFrameSerial, time = sourceVideoHidden.currentTime;
+            await trackAlignmentFrame(job, time, 768);
+            if (!isCurrentAutoAlignJob(job)) break;
+            autoAlignStatus.textContent = job.misses ? 'Circle uncertain. Keeping last alignment.' : 'Following circle.';
+            await waitForAlignmentFrame(job, serial);
+        }
+    } catch (error) {
+        if ((!job || autoAlignJob === job && !job.cancelled) && error.name !== 'AbortError') {
+            continuousAlignToggle.checked = false;
+            showToast(error.message || 'Continuous alignment stopped.', 'error');
+        }
+    } finally {
+        if (job) finishAutoAlignJob(job);
     }
 }
 
@@ -1196,7 +1378,8 @@ async function startFrameExport() {
     exportController = controller;
     const signal = controller.signal;
     const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
-    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn, preferCircleToggle];
+    const trackFrames = continuousAlignToggle.checked;
+    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn, preferCircleToggle, continuousAlignToggle];
     const previousDisabled = controls.map(control => control.disabled);
     controls.forEach(control => control.disabled = true);
     resetPointerInteractions();
@@ -1212,13 +1395,24 @@ async function startFrameExport() {
         exportProgressBar.style.width = `${percent}%`;
         exportPercentText.innerText = `${Math.floor(percent)}%`;
     };
+    let alignmentJob;
+    const cancelExportAlignment = () => { if (autoAlignJob === alignmentJob) cancelAutoAlign(); };
     try {
+        if (trackFrames) {
+            alignmentJob = createAutoAlignJob('export');
+            signal.addEventListener('abort', cancelExportAlignment, { once: true });
+        }
         const zip = new JSZip(), folder = zip.folder('frames');
         let exportBytes = 0;
         for (let frameCount = 0; frameCount < totalFrames; frameCount++) {
             checkCancelled();
             await seekVideoFrame(video, frameCount / fps, signal);
             checkCancelled();
+            if (alignmentJob) {
+                await trackAlignmentFrame(alignmentJob, frameCount / fps, 1536);
+                checkCancelled();
+                if (!isCurrentAutoAlignJob(alignmentJob)) throw new DOMException('Export cancelled.', 'AbortError');
+            }
             procTexture.needsUpdate = true;
             renderProcessor();
             const blob = await new Promise(r => procCanvas.toBlob(r, mime, format === 'jpg' ? 0.9 : undefined));
@@ -1240,6 +1434,8 @@ async function startFrameExport() {
     } catch (err) {
         showToast(err.name === 'AbortError' ? 'Export cancelled.' : `Export error: ${err.message}`, err.name === 'AbortError' ? 'info' : 'error');
     } finally {
+        signal.removeEventListener('abort', cancelExportAlignment);
+        if (alignmentJob) finishAutoAlignJob(alignmentJob);
         exportController = null;
         isExportingFrames = false;
         controls.forEach((control, index) => control.disabled = previousDisabled[index]);
@@ -1304,7 +1500,7 @@ function render3D() {
 }
 
 // Global Event Listeners
-autoDetectBtn.addEventListener('click', runAutoDetect);
+autoDetectBtn.addEventListener('click', () => runAutoDetect());
 function setDetectConfigOpen(open) {
     detectConfigPanel.classList.toggle('hidden', !open);
     toggleDetectConfig.setAttribute('aria-expanded', String(open));
@@ -1316,7 +1512,12 @@ document.addEventListener('pointerdown', e => {
 inpSensitivity.addEventListener('input', () => { cancelAutoAlign(); valSensitivity.innerText = `${inpSensitivity.value}%`; });
 inpBias.addEventListener('input', () => { cancelAutoAlign(); valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
 preferCircleToggle.addEventListener('change', () => cancelAutoAlign());
+continuousAlignToggle.addEventListener('change', () => { cancelAutoAlign(); maybeStartAutomaticAlignment(); });
 window.addEventListener('pagehide', () => cancelAutoAlign());
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if (autoAlignJob && autoAlignJob.mode !== 'export') cancelAutoAlign(); }
+    else maybeStartAutomaticAlignment();
+});
 fovSlider.addEventListener('input', updateParams);
 pitchSlider.addEventListener('input', updateParams);
 yawSlider.addEventListener('input', updateParams);
@@ -1342,6 +1543,7 @@ window.addEventListener('blur', resetPointerInteractions);
 sourceCanvas.addEventListener('wheel', onWheel, { passive: false });
 playPauseBtn.addEventListener('click', toggleVideoPlayback);
 sourceVideoHidden.addEventListener('seeked', refreshVideoFrame);
+sourceVideoHidden.addEventListener('seeking', () => { if (autoAlignJob?.mode === 'continuous') cancelAutoAlign(); });
 sourceVideoHidden.addEventListener('play', updatePlaybackControls);
 sourceVideoHidden.addEventListener('pause', updatePlaybackControls);
 videoSeek.addEventListener('input', () => {
@@ -1401,7 +1603,7 @@ function onAlignmentKeyDown(e) {
     const step = e.altKey ? 10 : 1;
     const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
     if (arrows[e.key]) {
-        cancelAutoAlign();
+        stopAutoAlignForManualEdit();
         if (e.shiftKey) ball.r = Math.max(1, ball.r + (['ArrowRight', 'ArrowUp'].includes(e.key) ? step : -step));
         else { ball.x += arrows[e.key][0] * step; ball.y += arrows[e.key][1] * step; }
         updateParams(); announceAlignment();
@@ -1468,7 +1670,7 @@ function startAlignmentDrag(e) {
     else if (distR < tol) { isDragging=true; dragMode='resize-uniform'; }
     else if (distC < ball.r) { isDragging=true; dragMode='move'; }
     else isPanning = true;
-    if (isDragging) cancelAutoAlign();
+    if (isDragging) stopAutoAlignForManualEdit();
 }
 function updateAlignmentDrag(e) {
     if(!sourceMedia || isExportingFrames) return; const pos = getScreenPos(e);
