@@ -10,6 +10,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runCorrectnessChecks } from './correctness-checks.mjs';
 import { runInteractionChecks } from './interaction-checks.mjs';
 import { runWorkspaceChecks } from './workspace-checks.mjs';
+import { runPreviewGuideChecks } from './preview-guide-checks.mjs';
+import { runCoverageChecks } from './coverage-checks.mjs';
+import { runParameterChecks } from './parameter-checks.mjs';
 import { createVideoFixture } from './video-fixture.mjs';
 import { runLiveAlignmentChecks } from './live-alignment-checks.mjs';
 import { runAutoAlignBrowserChecks } from './auto-align-browser-checks.mjs';
@@ -28,7 +31,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const server = createServer((req, res) => {
     const pathname = new URL(req.url, 'http://localhost').pathname;
     const file = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
-    if (!file.startsWith(root + sep) || !['/index.html', '/', '/auto-align.js', '/example/example.jpg'].includes(pathname)) {
+    if (!file.startsWith(root + sep) || !['/index.html', '/', '/auto-align.js', '/coverage.js', '/example/example.jpg'].includes(pathname)) {
         res.writeHead(404).end();
         return;
     }
@@ -153,6 +156,9 @@ try {
     }
     await evaluate('HTMLAnchorElement.prototype.click = window.originalAnchorClick; true;');
     await runCorrectnessChecks({ evaluate, check, waitFor, loadImage });
+    await runPreviewGuideChecks({ cdp, evaluate, check, loadImage });
+    await runCoverageChecks({ cdp, evaluate, check, waitFor, loadImage });
+    await runParameterChecks({ cdp, evaluate, check, delay, loadImage });
     await runAutoAlignBrowserChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
     await runInteractionChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
     await runWorkspaceChecks({ cdp, evaluate, check, waitFor, loadImage, delay });
@@ -181,6 +187,17 @@ try {
         "fileInput.files.length === 1 && fileInput.files[0].name === 'colors.webm'");
     await check('video import starts paused at frame zero with a finite duration',
         'sourceVideoHidden.paused && sourceVideoHidden.currentTime === 0 && sourceVideoHidden.duration === 1');
+    await check('video coverage can use a lens calibration without photo metadata', `(() => {
+        const before = { auto: autoCoverageToggle.checked, mode: coverageMode.value, focal: coverageFocalLength.value, fov: fovSlider.value };
+        try {
+            autoCoverageToggle.checked = true; coverageMode.value = 'lens'; coverageFocalLength.value = 50; syncCoverageControls(); updateParams();
+            const expected = MirrorBallCoverage.fromFocalLength(ball.r, sourceCanvas.width, sourceCanvas.height, 50);
+            return coverageMetadata === null && Math.abs(Number(fovSlider.value) - expected.coverage) <= .051 && autoCoverageStatus.textContent.includes('Lens estimate');
+        } finally {
+            autoCoverageToggle.checked = before.auto; coverageMode.value = before.mode; coverageFocalLength.value = before.focal; fovSlider.value = before.fov;
+            syncCoverageControls(); updateParams();
+        }
+    })()`);
     await check('a video selected through the native file picker plays and advances', `(async () => {
         await toggleVideoPlayback();
         await new Promise(resolve => setTimeout(resolve, 200));
@@ -262,6 +279,7 @@ try {
         return names.length === 3 && names[0].endsWith('.png') && first[0] === 137 && first[1] === 80;
     })()`);
     await evaluate(`window.originalToBlob = procCanvas.toBlob; window.pendingEncode = null;
+        toggleOrientationEditBtn.click();
         window.workerBeforeExport = window.Worker;
         window.Worker = class { postMessage() {} terminate() {} };
         window.alignmentBeforeExport = runAutoDetect();
@@ -270,15 +288,25 @@ try {
         window.Worker = window.workerBeforeExport; true;`);
     await waitFor('window.pendingEncode !== null');
     await check('export locks media and optical controls while leaving Cancel available',
-        "fileInput.disabled && webcamBtn.disabled && fovSlider.disabled && !exportFramesBtn.disabled && exportFramesBtn.innerText === 'Cancel Export'");
+        "fileInput.disabled && webcamBtn.disabled && fovSlider.disabled && pitchValue.disabled && valSensitivity.disabled && toggleOrientationEditBtn.disabled && orientationEditHint.classList.contains('hidden') && autoCoverageToggle.disabled && coverageMode.disabled && coverageFocalLength.disabled && coverageDiameter.disabled && coverageDistance.disabled && !exportFramesBtn.disabled && exportFramesBtn.innerText === 'Cancel Export'");
+    const exportPreview = await evaluate(`(() => {
+        window.exportPose = [pitchSlider.value, yawSlider.value, rollSlider.value];
+        threeContainer.scrollIntoView({ block: 'center' }); const r = threeContainer.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`);
+    await cdp('Input.dispatchMouseEvent', { type: 'mousePressed', ...exportPreview, button: 'left', buttons: 1, clickCount: 1, modifiers: 2 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseMoved', x: exportPreview.x + 40, y: exportPreview.y + 15, button: 'left', buttons: 1, modifiers: 2 });
+    await cdp('Input.dispatchMouseEvent', { type: 'mouseReleased', x: exportPreview.x + 40, y: exportPreview.y + 15, button: 'left', buttons: 0 });
+    await check('Ctrl-drag cannot change image orientation during an export', 'viewerPointerId === null && JSON.stringify([pitchSlider.value, yawSlider.value, rollSlider.value]) === JSON.stringify(window.exportPose)');
     await check('export cancels pending alignment before locking controls', `(async () => {
         return await window.alignmentBeforeExport === false && !autoAlignJob && autoDetectBtn.disabled && preferCircleToggle.disabled && autoDetectBtn.textContent === 'Auto align';
     })()`);
     await check('cancelling export prevents download and restores controls', `(async () => {
         exportFramesBtn.click(); window.pendingEncode(); await window.exportPromise;
         procCanvas.toBlob = window.originalToBlob;
-        return window.savedArchives.length === 2 && !isExportingFrames && !fileInput.disabled && !autoDetectBtn.disabled && !preferCircleToggle.disabled && toastContainer.lastElementChild.innerText === 'Export cancelled.';
+        return window.savedArchives.length === 2 && !isExportingFrames && !fileInput.disabled && !autoDetectBtn.disabled && !preferCircleToggle.disabled && !autoCoverageToggle.disabled && !coverageMode.disabled && !toggleOrientationEditBtn.disabled && !orientationEditHint.classList.contains('hidden') && toastContainer.lastElementChild.innerText === 'Export cancelled.';
     })()`);
+    await evaluate('toggleOrientationEditBtn.click(); true;');
     await check('export refuses frames beyond its memory budget', `(async () => {
         procCanvas.toBlob = callback => callback({ size: MAX_EXPORT_BYTES + 1 });
         await startFrameExport(); procCanvas.toBlob = window.originalToBlob;

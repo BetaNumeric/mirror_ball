@@ -11,6 +11,7 @@
     <!-- Import FileSaver for saving the zip -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="auto-align.js"></script>
+    <script src="coverage.js"></script>
     
     <style>
         :root { color-scheme: dark; --bg: #141414; --border: #353535; --text: #e5e5e5; --muted: #a3a3a3; --error: #e4aaaa; }
@@ -83,6 +84,9 @@
         .field + .field { margin-top: 16px; }
         .field-label { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
         .field-label span { font-variant-numeric: tabular-nums; }
+        .parameter-value { display: inline-flex; align-items: center; gap: 3px; }
+        .parameter-value input { width: 66px; height: 24px; padding: 1px 4px; border: 0; border-bottom: 1px solid #484848; border-radius: 3px 3px 0 0; background: transparent; color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+        .parameter-value input:hover, .parameter-value input:focus { background: #292929; }
         input[type="range"] { appearance: none; display: block; width: 100%; height: 20px; margin: 0; background: transparent; cursor: pointer; }
         input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: #484848; border-radius: 2px; }
         input[type="range"]::-moz-range-track { height: 2px; background: #484848; border-radius: 2px; }
@@ -92,12 +96,19 @@
         .option-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; margin-top: 14px; }
         .preview-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: 24px; }
         .rotation-fields { margin-top: 22px; }
+        .coverage-note { margin-top: 8px; color: var(--muted); font-size: 11px; }
+        .coverage-calibration { margin-top: 10px; }
+        .coverage-calibration .field { margin-top: 12px; }
+        .coverage-calibration input, .coverage-calibration select { width: 100%; height: 30px; padding: 3px 6px; border: 1px solid #484848; border-radius: 4px; background: #262626; color: var(--text); }
         .viewer { position: relative; height: 280px; min-width: 0; min-height: 0; flex-direction: column; border: 1px solid #303030; border-radius: 6px; overflow: hidden; background: #111; }
         .viewer:fullscreen { width: 100%; height: 100%; border: 0; border-radius: 0; }
-        .viewer-toolbar { position: absolute; top: 6px; right: 6px; z-index: 20; }
+        .viewer-toolbar { position: absolute; top: 6px; right: 6px; z-index: 20; display: flex; gap: 4px; }
         .viewer-toolbar .icon-button { background: rgba(20,20,20,.65); color: #ddd; }
+        .viewer-toolbar .icon-button[aria-pressed="true"] { background: rgba(65,65,65,.9); color: #fff; box-shadow: inset 0 0 0 1px #777; }
         #threeContainer { flex: 1; min-height: 0; width: 100%; cursor: grab; }
         #threeContainer:active { cursor: grabbing; }
+        #threeContainer.is-editing-orientation { cursor: move; }
+        .viewer-edit-hint { position: absolute; bottom: 8px; left: 8px; right: 8px; width: fit-content; max-width: calc(100% - 16px); padding: 3px 6px; border-radius: 3px; background: rgba(20,20,20,.75); color: #ddd; font-size: 11px; pointer-events: none; }
         .export-bar { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 20px; border-radius: 8px; background: #252525; }
         .export-fields { display: flex; gap: 24px; align-items: flex-end; }
         .export-field { display: flex; flex-direction: column; gap: 5px; }
@@ -164,8 +175,8 @@
                         </div>
                         <div id="detectConfigPanel" class="popover hidden">
                             <h4>Detection</h4>
-                            <div class="field"><div class="field-label"><label for="inpSensitivity">Threshold</label><span id="valSensitivity">25%</span></div><input type="range" id="inpSensitivity" min="5" max="60" value="25" step="1"></div>
-                            <div class="field"><div class="field-label"><label for="inpBias">Center bias</label><span id="valBias">Med</span></div><input type="range" id="inpBias" min="0" max="100" value="60" step="1"></div>
+                            <div class="field"><div class="field-label"><label for="inpSensitivity">Threshold</label><span class="parameter-value"><input id="valSensitivity" type="number" min="5" max="60" step="0.01" value="25" inputmode="decimal" data-range="inpSensitivity" aria-label="Threshold percentage" aria-describedby="parameterHelp"><span aria-hidden="true">%</span></span></div><input type="range" id="inpSensitivity" min="5" max="60" value="25" step="0.01"></div>
+                            <div class="field"><div class="field-label"><label for="inpBias">Center bias</label><span class="parameter-value"><input id="valBias" type="number" min="0" max="100" step="0.01" value="60" inputmode="decimal" data-range="inpBias" aria-label="Center bias percentage" aria-describedby="parameterHelp"><span aria-hidden="true">%</span></span></div><input type="range" id="inpBias" min="0" max="100" value="60" step="0.01"></div>
                             <div class="option-row"><label for="preferCircleToggle" title="Use the current circle as a location and size hint">Prefer current circle</label><input id="preferCircleToggle" type="checkbox" aria-describedby="preferCircleHelp"></div>
                             <p id="preferCircleHelp" class="sr-only">Use a rough manual alignment to choose between otherwise plausible circles. A supported rim is still required.</p>
                             <div id="continuousAlignControl" class="option-row hidden"><label for="continuousAlignToggle" title="Follow the circle during playback and align each exported frame">Continuous align</label><input id="continuousAlignToggle" type="checkbox" aria-describedby="continuousAlignHelp"></div>
@@ -196,19 +207,33 @@
             <div class="collapsible-content">
                 <div class="preview-layout">
                     <div>
-                        <div class="field"><div class="field-label"><label for="fovSlider">Coverage</label><span id="fovValue">360&#176;</span></div><input type="range" id="fovSlider" min="180" max="360" value="360" step="1"></div>
+                        <div class="field"><div class="field-label"><label for="fovSlider">Coverage</label><span class="parameter-value"><input id="fovValue" type="number" min="180" max="360" step="0.01" value="360" inputmode="decimal" data-range="fovSlider" aria-label="Coverage in degrees" aria-describedby="parameterHelp"><span aria-hidden="true">&#176;</span></span></div><input type="range" id="fovSlider" min="180" max="360" value="360" step="0.01"></div>
+                        <div class="option-row"><label for="autoCoverageToggle">Auto coverage</label><input type="checkbox" id="autoCoverageToggle" aria-describedby="autoCoverageStatus"></div>
+                        <p id="autoCoverageStatus" class="coverage-note hidden"></p>
+                        <details id="coverageCalibration" class="help coverage-calibration hidden"><summary>Calibration</summary>
+                            <div class="field"><div class="field-label"><label for="coverageMode">Source</label></div><select id="coverageMode"><option value="metadata">Photo metadata</option><option value="lens">Lens calibration</option><option value="geometry">Ball &amp; distance</option></select></div>
+                            <div id="coverageLensField" class="field hidden"><div class="field-label"><label for="coverageFocalLength">35mm equivalent (mm)</label></div><input id="coverageFocalLength" type="number" min="0.1" step="any" inputmode="decimal" aria-describedby="coverageLensHelp"></div>
+                            <p id="coverageLensHelp" class="coverage-note">Lens estimates assume an uncropped rectilinear image and a ball near the image center.</p>
+                            <div id="coverageGeometryFields" class="hidden">
+                                <div class="field"><div class="field-label"><label for="coverageDiameter">Ball diameter (mm)</label></div><input id="coverageDiameter" type="number" min="0.1" step="any" inputmode="decimal"></div>
+                                <div class="field"><div class="field-label"><label for="coverageDistance">Camera to ball center (mm)</label></div><input id="coverageDistance" type="number" min="0.1" step="any" inputmode="decimal" aria-describedby="coverageDistanceHelp"></div>
+                                <p id="coverageDistanceHelp" class="coverage-note">Measure from the lens viewpoint to the ball center. Keep this setup fixed.</p>
+                            </div>
+                        </details>
                         <div class="option-row"><label for="showSourceToggle" title="Stretch source pixels into missing coverage">Fill blind spot</label><input type="checkbox" id="showSourceToggle" aria-describedby="blindSpotHelp" checked></div>
                         <p id="blindSpotHelp" class="sr-only">Fill stretches source pixels into missing coverage.</p>
                         <div class="rotation-fields">
-                            <div class="field"><div class="field-label"><label for="pitchSlider">Pitch</label><span id="pitchValue">0&#176;</span></div><input type="range" id="pitchSlider" min="-180" max="180" value="0" step="1"></div>
-                            <div class="field"><div class="field-label"><label for="yawSlider">Yaw</label><span id="yawValue">0&#176;</span></div><input type="range" id="yawSlider" min="-180" max="180" value="0" step="1"></div>
-                            <div class="field"><div class="field-label"><label for="rollSlider">Roll</label><span id="rollValue">0&#176;</span></div><input type="range" id="rollSlider" min="-180" max="180" value="0" step="1"></div>
+                            <div class="field"><div class="field-label"><label for="pitchSlider">Pitch</label><span class="parameter-value"><input id="pitchValue" type="number" min="-180" max="180" step="0.01" value="0" inputmode="decimal" data-range="pitchSlider" aria-label="Pitch in degrees" aria-describedby="parameterHelp"><span aria-hidden="true">&#176;</span></span></div><input type="range" id="pitchSlider" min="-180" max="180" value="0" step="0.01"></div>
+                            <div class="field"><div class="field-label"><label for="yawSlider">Yaw</label><span class="parameter-value"><input id="yawValue" type="number" min="-180" max="180" step="0.01" value="0" inputmode="decimal" data-range="yawSlider" aria-label="Yaw in degrees" aria-describedby="parameterHelp"><span aria-hidden="true">&#176;</span></span></div><input type="range" id="yawSlider" min="-180" max="180" value="0" step="0.01"></div>
+                            <div class="field"><div class="field-label"><label for="rollSlider">Roll</label><span class="parameter-value"><input id="rollValue" type="number" min="-180" max="180" step="0.01" value="0" inputmode="decimal" data-range="rollSlider" aria-label="Roll in degrees" aria-describedby="parameterHelp"><span aria-hidden="true">&#176;</span></span></div><input type="range" id="rollSlider" min="-180" max="180" value="0" step="0.01"></div>
                         </div>
                     </div>
                     <div id="viewerSection" class="viewer hidden">
-                        <div class="viewer-toolbar"><button onclick="toggleFullscreen()" class="icon-button" title="Fullscreen"><svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></svg></button></div>
+                        <div class="viewer-toolbar"><button id="toggleOrientationEditBtn" type="button" class="icon-button" title="Edit orientation (Ctrl-drag)" aria-label="Edit image orientation" aria-pressed="false" aria-controls="threeContainer" aria-describedby="viewerHelp"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a8 8 0 1 1-1 7M4 3v5h5M8 16l2.5-.5L18 8l-2-2-7.5 7.5z"/></svg></button><button id="toggleGuidesBtn" type="button" class="icon-button" title="Orientation guides" aria-label="Orientation guides" aria-pressed="false" aria-controls="threeContainer" aria-describedby="guidesHelp"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v18M3 7h18M3 17h18"/></svg></button><button onclick="toggleFullscreen()" class="icon-button" title="Fullscreen"><svg class="icon " viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5m6 0h5v5M4 15v5h5m6 0h5v-5"/></svg></button></div>
                         <div id="threeContainer" tabindex="0" role="group" aria-label="360 degree preview" aria-describedby="viewerHelp"></div>
-                        <p id="viewerHelp" class="sr-only">Drag with a mouse, pen, or finger to look around. Arrow keys rotate the view; 0 resets it.</p>
+                        <p id="orientationEditHint" class="viewer-edit-hint hidden">Drag: rotate · Shift: roll · Alt: fine · Wheel: coverage</p>
+                        <p id="viewerHelp" class="sr-only">Drag to look around. Arrow keys rotate the view; 0 resets it. Enable Edit orientation or hold Control while dragging to rotate the image. Shift-drag rolls around the viewing direction; Alt makes finer changes. In edit mode, the wheel adjusts Coverage.</p>
+                        <p id="guidesHelp" class="sr-only">Show a horizon and reference lines every 30 degrees. Guides stay fixed while you adjust image rotation and appear only in the preview.</p>
                     </div>
                 </div>
             </div>
@@ -226,6 +251,7 @@
             <div class="progress-track"><div id="exportProgressBar" style="width:0%"></div></div>
         </div>
     </main>
+    <p id="parameterHelp" class="sr-only">Type a decimal value. Up and down arrows adjust by 0.1; Shift adjusts by 1; Alt by 0.01. Enter commits, and Escape discards an unfinished entry. Double-click a slider handle to reset its default.</p>
     <video id="sourceVideoHidden" class="hidden" preload="auto" playsinline loop muted crossorigin="anonymous"></video>
     <div id="toastContainer" role="log" aria-label="Notifications" aria-live="polite" aria-relevant="additions"></div>
 
@@ -234,6 +260,7 @@
  * --- GLOBAL VARIABLES ---
  */
 let scene, camera, renderer, sphereMesh; 
+let orientationGuides = null;
 let procScene, procCamera, procRenderer, procMaterial, procTexture, procCanvas; 
 
 const _euler = new THREE.Euler();
@@ -244,6 +271,7 @@ let isUserInteracting = false;
 let onPointerDownPointerX = 0, onPointerDownPointerY = 0;
 let lon = 0, onPointerDownLon = 0;
 let lat = 0, onPointerDownLat = 0;
+let viewerDragState = null;
 
 let sourceMedia = null; 
 let isVideo = false;
@@ -261,6 +289,8 @@ let needsRender = false;
 let sourceNeedsRender = false;
 let autoAlignJob = null;
 let initialAutoAlignMediaId = null;
+let coverageMetadata = null;
+let pendingCoverageMetadata = null;
 let videoFrameWatch = null;
 let videoFrameSerial = 0;
 let videoFrameTime = null;
@@ -304,6 +334,9 @@ const emptyState = document.getElementById('emptyState');
 const resInfo = document.getElementById('resInfo');
 const viewerSection = document.getElementById('viewerSection');
 const threeContainer = document.getElementById('threeContainer');
+const toggleGuidesBtn = document.getElementById('toggleGuidesBtn');
+const toggleOrientationEditBtn = document.getElementById('toggleOrientationEditBtn');
+const orientationEditHint = document.getElementById('orientationEditHint');
 const destContainer = document.getElementById('destContainer');
 const videoControls = document.getElementById('videoControls');
 const playPauseBtn = document.getElementById('playPauseBtn');
@@ -334,6 +367,13 @@ const inpBias = document.getElementById('inpBias');
 const valBias = document.getElementById('valBias');
 const fovSlider = document.getElementById('fovSlider');
 const fovValue = document.getElementById('fovValue');
+const autoCoverageToggle = document.getElementById('autoCoverageToggle');
+const autoCoverageStatus = document.getElementById('autoCoverageStatus');
+const coverageCalibration = document.getElementById('coverageCalibration');
+const coverageMode = document.getElementById('coverageMode');
+const coverageFocalLength = document.getElementById('coverageFocalLength');
+const coverageDiameter = document.getElementById('coverageDiameter');
+const coverageDistance = document.getElementById('coverageDistance');
 const showSourceToggle = document.getElementById('showSourceToggle');
 const pitchSlider = document.getElementById('pitchSlider');
 const pitchValue = document.getElementById('pitchValue');
@@ -341,6 +381,7 @@ const yawSlider = document.getElementById('yawSlider');
 const yawValue = document.getElementById('yawValue');
 const rollSlider = document.getElementById('rollSlider');
 const rollValue = document.getElementById('rollValue');
+const parameterBindings = new Map();
 
 /**
  * --- UTILS ---
@@ -426,11 +467,144 @@ function toggleFullscreen() {
 /**
  * --- PARAMETER UPDATES (Fixed Hoisting) ---
  */
+function syncParameterValue(range, force = false) {
+    const binding = parameterBindings.get(range);
+    if (binding && (force || document.activeElement !== binding.number)) binding.number.value = range.value;
+}
+
+function setParameterValue(range, value, forceNumber = false) {
+    if (range.disabled || isExportingFrames || !Number.isFinite(value)) return false;
+    range.value = String(Math.round(Math.max(Number(range.min), Math.min(Number(range.max), value)) * 100) / 100);
+    syncParameterValue(range, forceNumber);
+    range.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+}
+
+function bindParameterControls() {
+    document.querySelectorAll('input[data-range]').forEach(number => {
+        const range = document.getElementById(number.dataset.range);
+        const binding = { number, presses: [], activePress: null, dirty: false };
+        parameterBindings.set(range, binding);
+        number.min = range.min; number.max = range.max; number.step = range.step;
+        number.value = range.value;
+        number.title = 'Arrows: 0.1 · Shift: 1 · Alt: 0.01';
+        range.title = 'Double-click the handle to reset';
+        range.setAttribute('aria-describedby', 'parameterHelp');
+        range.addEventListener('input', () => syncParameterValue(range));
+        const commit = () => {
+            const value = number.valueAsNumber;
+            if (binding.dirty && number.value !== '' && Number.isFinite(value)) setParameterValue(range, value, true);
+            binding.dirty = false; syncParameterValue(range, true);
+        };
+        number.addEventListener('focus', () => { binding.dirty = false; });
+        number.addEventListener('input', () => {
+            binding.dirty = true;
+            const value = number.valueAsNumber;
+            // Preserve partial entries such as a minus sign or a value below the
+            // minimum while typing. Only complete, in-range numbers render live.
+            if (number.value !== '' && Number.isFinite(value) && value >= Number(range.min) && value <= Number(range.max)) setParameterValue(range, value);
+        });
+        number.addEventListener('blur', commit);
+        for (const control of [number, range]) control.addEventListener('keydown', e => {
+            const direction = ['ArrowUp', ...(control === range ? ['ArrowRight'] : [])].includes(e.key) ? 1
+                : ['ArrowDown', ...(control === range ? ['ArrowLeft'] : [])].includes(e.key) ? -1 : 0;
+            if (direction) {
+                e.preventDefault(); e.stopPropagation();
+                const current = control === number && number.value !== '' && Number.isFinite(number.valueAsNumber) ? number.valueAsNumber : Number(range.value);
+                setParameterValue(range, current + direction * (e.altKey ? 0.01 : e.shiftKey ? 1 : 0.1), true);
+            } else if (control === number && e.key === 'Enter') {
+                e.preventDefault(); e.stopPropagation(); commit();
+            } else if (control === number && e.key === 'Escape') {
+                e.preventDefault(); e.stopPropagation(); binding.dirty = false; syncParameterValue(range, true); number.blur();
+            }
+        });
+        range.addEventListener('pointerdown', e => {
+            const rect = range.getBoundingClientRect(), fraction = (Number(range.value) - Number(range.min)) / (Number(range.max) - Number(range.min));
+            const position = getComputedStyle(range).direction === 'rtl' ? 1 - fraction : fraction;
+            const x = rect.left + 5 + position * (rect.width - 10);
+            const press = { x: e.clientX, y: e.clientY, time: e.timeStamp, thumb: Math.abs(e.clientX - x) <= 10 && Math.abs(e.clientY - rect.top - rect.height / 2) <= 12, moved: false };
+            binding.presses.push(press); binding.presses = binding.presses.slice(-2); binding.activePress = press;
+        }, { capture: true });
+        range.addEventListener('pointermove', e => {
+            const press = binding.activePress;
+            if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) press.moved = true;
+        });
+        for (const event of ['pointerup', 'pointercancel']) range.addEventListener(event, () => { binding.activePress = null; });
+        range.addEventListener('dblclick', e => {
+            const [first, second] = binding.presses;
+            if (first?.thumb && second?.thumb && !first.moved && !second.moved && second.time - first.time < 700 &&
+                Math.hypot(first.x - second.x, first.y - second.y) < 6) {
+                e.preventDefault(); setParameterValue(range, Number(range.defaultValue), true);
+            }
+        });
+    });
+}
+
+function syncCoverageControls() {
+    const auto = autoCoverageToggle.checked, mode = coverageMode.value;
+    autoCoverageStatus.classList.toggle('hidden', !auto);
+    coverageCalibration.classList.toggle('hidden', !auto);
+    document.getElementById('coverageLensField').classList.toggle('hidden', mode !== 'lens');
+    document.getElementById('coverageGeometryFields').classList.toggle('hidden', mode !== 'geometry');
+    document.getElementById('coverageLensHelp').classList.toggle('hidden', mode === 'geometry');
+}
+
+function saveCoverageSettings() {
+    try {
+        localStorage.setItem('mirror-ball-coverage-v1', JSON.stringify({ enabled: autoCoverageToggle.checked, mode: coverageMode.value,
+            focalLength: coverageFocalLength.value, diameter: coverageDiameter.value, distance: coverageDistance.value }));
+    } catch { /* Manual controls remain usable when storage is unavailable. */ }
+}
+
+function restoreCoverageSettings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('mirror-ball-coverage-v1'));
+        if (saved && typeof saved === 'object') {
+            autoCoverageToggle.checked = saved.enabled === true;
+            if (['metadata', 'lens', 'geometry'].includes(saved.mode)) coverageMode.value = saved.mode;
+            for (const [input, key] of [[coverageFocalLength, 'focalLength'], [coverageDiameter, 'diameter'], [coverageDistance, 'distance']]) {
+                if (typeof saved[key] === 'string' && saved[key].length < 32) input.value = saved[key];
+            }
+        }
+    } catch { /* Empty, blocked, or obsolete storage uses the defaults. */ }
+    syncCoverageControls();
+}
+
+function updateAutomaticCoverage() {
+    if (!autoCoverageToggle.checked) return;
+    const messages = { 'metadata-required': 'No focal metadata. Choose Calibration.', 'digital-zoom': 'Digital zoom needs lens or distance calibration.',
+        'edited-dimensions': 'Edited image dimensions need calibration.', 'circle-required': 'Align the source circle first.',
+        'focal-required': 'Enter a 35mm-equivalent focal length.', 'geometry-required': 'Enter ball diameter and camera distance.',
+        'camera-inside-ball': 'Camera distance must exceed the ball radius.' };
+    let message;
+    if (!sourceMedia) message = 'Load media to estimate coverage.';
+    else if (typeof MirrorBallCoverage === 'undefined') message = 'Auto coverage is unavailable. Reload the app.';
+    else {
+        const estimate = MirrorBallCoverage.estimate({ mode: coverageMode.value, metadata: coverageMetadata, radius: ball.r,
+            width: sourceCanvas.width, height: sourceCanvas.height, focalLength35mm: Number(coverageFocalLength.value),
+            diameter: Number(coverageDiameter.value), distance: Number(coverageDistance.value) });
+        if (estimate.reason) message = messages[estimate.reason] || 'Calibration unavailable. Existing coverage kept.';
+        else {
+            fovSlider.value = estimate.coverage.toFixed(1);
+            const source = { metadata: 'Photo estimate', lens: 'Lens estimate', geometry: 'Geometry estimate' }[estimate.source];
+            message = `${source} · blind spot ${estimate.blindSpot.toFixed(1)}°`;
+        }
+    }
+    if (autoCoverageStatus.textContent !== message) autoCoverageStatus.textContent = message;
+    syncParameterValue(fovSlider);
+}
+
+async function loadCoverageMetadata(file, requestId) {
+    if (typeof MirrorBallCoverage === 'undefined') return;
+    const metadata = await MirrorBallCoverage.readJpegExif(file);
+    if (requestId !== mediaRequestId) return;
+    if (isExportingFrames) { pendingCoverageMetadata = { requestId, metadata }; return; }
+    coverageMetadata = metadata;
+    if (sourceMedia) updateParams();
+}
+
 function updateUIValues() {
-    if (fovValue) fovValue.innerText = `${fovSlider.value}°`;
-    if (pitchValue) pitchValue.innerText = `${pitchSlider.value}°`;
-    if (yawValue) yawValue.innerText = `${yawSlider.value}°`;
-    if (rollValue) rollValue.innerText = `${rollSlider.value}°`;
+    for (const range of parameterBindings.keys()) syncParameterValue(range);
 }
 
 function updateParams() {
@@ -442,6 +616,8 @@ function updateParams() {
 /**
  * --- INITIALIZATION ---
  */
+bindParameterControls();
+restoreCoverageSettings();
 initProcessor();
 updateWorkspaceSplit();
 
@@ -682,6 +858,8 @@ function updatePlaybackControls() {
 
 function resetMedia() {
     const requestId = ++mediaRequestId;
+    coverageMetadata = null;
+    pendingCoverageMetadata = null;
     cancelAutoAlign();
     stopVideoFrameWatch();
     if (exportController) exportController.abort();
@@ -839,6 +1017,7 @@ function handleFileSelect(file) {
     }
     const requestId = resetMedia();
     beginMediaLoad(requestId, isVideoFile ? 'Loading video…' : 'Loading image…');
+    if (!isVideoFile) void loadCoverageMetadata(file, requestId);
     mediaObjectURL = URL.createObjectURL(file);
     if (isVideoFile) {
         prepareVideoSource(requestId, false);
@@ -1269,6 +1448,7 @@ function initProcessor() {
 }
 
 function updateProcessorParams() {
+    updateAutomaticCoverage();
     const requestedWidth = widthInput.value.trim() === '' ? procCanvas.width : Number(widthInput.value);
     const safeWidth = Number.isFinite(requestedWidth) ? requestedWidth : procCanvas.width;
     const tw = Math.max(2, Math.min(maxTextureSize, Math.floor(safeWidth / 2) * 2));
@@ -1277,7 +1457,7 @@ function updateProcessorParams() {
     if (procCanvas.width !== tw || procCanvas.height !== th) procRenderer.setSize(tw, th, false);
     resInfo.innerText = `${tw} x ${th} px`;
     procMaterial.uniforms.uBall.value.set(ball.x, sourceCanvas.height - ball.y, ball.r, 0);
-    procMaterial.uniforms.uFov.value = parseInt(fovSlider.value) * Math.PI / 180;
+    procMaterial.uniforms.uFov.value = Number(fovSlider.value) * Math.PI / 180;
     procMaterial.uniforms.uShowSource.value = showSourceToggle.checked;
     _euler.set(parseFloat(pitchSlider.value)*Math.PI/180, parseFloat(yawSlider.value)*Math.PI/180, parseFloat(rollSlider.value)*Math.PI/180, 'YXZ');
     _mat3.setFromMatrix4(_mat4.makeRotationFromEuler(_euler));
@@ -1379,7 +1559,9 @@ async function startFrameExport() {
     const signal = controller.signal;
     const format = formatSelect.value, mime = format === 'jpg' ? 'image/jpeg' : 'image/png';
     const trackFrames = continuousAlignToggle.checked;
-    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn, preferCircleToggle, continuousAlignToggle];
+    const controls = [fileInput, webcamBtn, playPauseBtn, videoSeek, widthInput, fpsInput, formatSelect, autoDetectBtn, fovSlider, pitchSlider, yawSlider, rollSlider, showSourceToggle, resetZoomBtn, preferCircleToggle, continuousAlignToggle,
+        autoCoverageToggle, coverageMode, coverageFocalLength, coverageDiameter, coverageDistance, inpSensitivity, inpBias, toggleOrientationEditBtn,
+        ...[...parameterBindings.values()].map(binding => binding.number)];
     const previousDisabled = controls.map(control => control.disabled);
     controls.forEach(control => control.disabled = true);
     resetPointerInteractions();
@@ -1438,12 +1620,123 @@ async function startFrameExport() {
         if (alignmentJob) finishAutoAlignJob(alignmentJob);
         exportController = null;
         isExportingFrames = false;
+        if (pendingCoverageMetadata?.requestId === mediaRequestId) coverageMetadata = pendingCoverageMetadata.metadata;
+        pendingCoverageMetadata = null;
+        updateParams();
         controls.forEach((control, index) => control.disabled = previousDisabled[index]);
+        syncOrientationEditMode();
         exportFramesBtn.innerText = 'Export ZIP';
         exportProgressContainer.classList.add('hidden');
         needsRender = true;
         refreshVideoFrame();
     }
+}
+
+function setOrientationGuides(show) {
+    toggleGuidesBtn.setAttribute('aria-pressed', String(show));
+    if (!renderer) return;
+    if (show && !orientationGuides) {
+        // The world-space grid shares the preview sphere but never its image rotation.
+        const material = new THREE.ShaderMaterial({
+            transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
+            extensions: { derivatives: true },
+            uniforms: { pixelRatio: { value: renderer.getPixelRatio() } },
+            vertexShader: `varying vec3 guideDirection;
+                void main() {
+                    guideDirection = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+            fragmentShader: `varying vec3 guideDirection;
+                uniform float pixelRatio;
+                void main() {
+                    vec3 direction = normalize(guideDirection);
+                    float latitude = asin(clamp(direction.y, -1.0, 1.0));
+                    float longitude = atan(direction.z, direction.x);
+                    vec2 phase = sin(vec2(longitude, latitude) * 6.0);
+                    vec2 distancePx = abs(phase) / max(fwidth(phase), vec2(0.0001)) / pixelRatio;
+                    float grid = min(distancePx.x, distancePx.y);
+                    float horizon = abs(latitude) / max(fwidth(latitude), 0.0001) / pixelRatio;
+                    float core = max((1.0 - smoothstep(0.45, 1.1, grid)) * 0.55,
+                        (1.0 - smoothstep(0.8, 1.5, horizon)) * 0.9);
+                    float halo = max((1.0 - smoothstep(1.1, 2.1, grid)) * 0.45,
+                        (1.0 - smoothstep(1.8, 2.8, horizon)) * 0.6);
+                    // A dark halo keeps the thin grayscale lines visible on bright images.
+                    float alpha = core + halo * (1.0 - core);
+                    if (alpha < 0.005) discard;
+                    gl_FragColor = vec4(vec3(core / alpha), alpha);
+                }`
+        });
+        orientationGuides = new THREE.Mesh(sphereMesh.geometry, material);
+        orientationGuides.renderOrder = 10;
+        scene.add(orientationGuides);
+    }
+    if (orientationGuides) orientationGuides.visible = show;
+    render3D();
+}
+
+function syncOrientationEditMode() {
+    const editing = !toggleOrientationEditBtn.disabled && (toggleOrientationEditBtn.getAttribute('aria-pressed') === 'true' || viewerDragState?.editing);
+    threeContainer.classList.toggle('is-editing-orientation', Boolean(editing));
+    orientationEditHint.classList.toggle('hidden', !editing);
+}
+
+function previewProjectionDirection(clientX, clientY) {
+    const rect = threeContainer.getBoundingClientRect();
+    const world = new THREE.Vector3((clientX - rect.left) / rect.width * 2 - 1, 1 - (clientY - rect.top) / rect.height * 2, 0.5)
+        .unproject(camera).sub(camera.position).normalize();
+    // The preview sphere UVs map world (x,y,z) to projection (-z,-y,-x).
+    return new THREE.Vector3(-world.z, -world.y, -world.x);
+}
+
+function applyOrientationQuaternion(quaternion, reference) {
+    const euler = new THREE.Euler().setFromQuaternion(quaternion, 'YXZ');
+    const wrap = value => ((value + 180) % 360 + 360) % 360 - 180;
+    const candidates = [[euler.x, euler.y, euler.z], [Math.PI - euler.x, euler.y + Math.PI, euler.z + Math.PI]]
+        .map(angles => angles.map(value => wrap(THREE.Math.radToDeg(value))));
+    const distance = angles => angles.reduce((sum, angle, i) => sum + wrap(angle - reference[i]) ** 2, 0);
+    const angles = distance(candidates[0]) <= distance(candidates[1]) ? candidates[0] : candidates[1];
+    [pitchSlider, yawSlider, rollSlider].forEach((slider, i) => { slider.value = String(Math.round(angles[i] * 100) / 100); });
+    updateParams();
+}
+
+function onPreviewPointerDown(e) {
+    if (!sourceMedia || viewerPointerId !== null || e.button !== 0 || isExportingFrames) return;
+    e.preventDefault(); threeContainer.focus({ preventScroll: true });
+    viewerPointerId = e.pointerId; threeContainer.setPointerCapture(e.pointerId);
+    isUserInteracting = true;
+    onPointerDownPointerX = e.clientX; onPointerDownPointerY = e.clientY;
+    onPointerDownLon = lon; onPointerDownLat = lat;
+    const editing = toggleOrientationEditBtn.getAttribute('aria-pressed') === 'true' || e.ctrlKey || e.metaKey;
+    const reference = [pitchSlider, yawSlider, rollSlider].map(slider => Number(slider.value));
+    if (editing) render3D();
+    viewerDragState = { editing, roll: e.shiftKey, fine: e.altKey, reference,
+        rotation: new THREE.Quaternion().setFromEuler(new THREE.Euler(...reference.map(THREE.Math.degToRad), 'YXZ')),
+        direction: editing ? previewProjectionDirection(e.clientX, e.clientY) : null,
+        axis: editing ? previewProjectionDirection(threeContainer.getBoundingClientRect().left + threeContainer.clientWidth / 2,
+            threeContainer.getBoundingClientRect().top + threeContainer.clientHeight / 2) : null };
+    syncOrientationEditMode();
+}
+
+function onPreviewPointerMove(e) {
+    if (e.pointerId !== viewerPointerId || !viewerDragState || isExportingFrames) return;
+    const state = viewerDragState;
+    if (!state.editing) {
+        lon = (onPointerDownPointerX - e.clientX) * 0.1 + onPointerDownLon;
+        lat = Math.max(-85, Math.min(85, (e.clientY - onPointerDownPointerY) * 0.1 + onPointerDownLat));
+        return;
+    }
+    let motion;
+    if (state.roll) motion = new THREE.Quaternion().setFromAxisAngle(state.axis, THREE.Math.degToRad((onPointerDownPointerX - e.clientX) * 0.2));
+    else motion = new THREE.Quaternion().setFromUnitVectors(previewProjectionDirection(e.clientX, e.clientY), state.direction);
+    if (state.fine) motion = new THREE.Quaternion().slerp(motion, 0.1);
+    applyOrientationQuaternion(state.rotation.clone().multiply(motion), state.reference);
+}
+
+function onPreviewPointerEnd(e) {
+    if (e.pointerId !== viewerPointerId) return;
+    viewerPointerId = null; viewerDragState = null; isUserInteracting = false;
+    if (threeContainer.hasPointerCapture(e.pointerId)) threeContainer.releasePointerCapture(e.pointerId);
+    syncOrientationEditMode();
 }
 
 function initOrUpdate3D() {
@@ -1461,25 +1754,9 @@ function initOrUpdate3D() {
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(container.clientWidth, container.clientHeight);
         container.innerHTML = ""; container.appendChild(renderer.domElement);
-        container.addEventListener('pointerdown', e => {
-            if (viewerPointerId !== null || e.button !== 0) return;
-            e.preventDefault(); container.focus({ preventScroll: true });
-            viewerPointerId = e.pointerId; container.setPointerCapture(e.pointerId);
-            isUserInteracting = true;
-            onPointerDownPointerX = e.clientX; onPointerDownPointerY = e.clientY;
-            onPointerDownLon = lon; onPointerDownLat = lat;
-        });
-        container.addEventListener('pointermove', e => {
-            if (e.pointerId !== viewerPointerId) return;
-            lon = (onPointerDownPointerX - e.clientX) * 0.1 + onPointerDownLon;
-            lat = Math.max(-85, Math.min(85, (e.clientY - onPointerDownPointerY) * 0.1 + onPointerDownLat));
-        });
-        const end = e => {
-            if (e.pointerId !== viewerPointerId) return;
-            viewerPointerId = null; isUserInteracting = false;
-            if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId);
-        };
-        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(name => container.addEventListener(name, end));
+        container.addEventListener('pointerdown', onPreviewPointerDown);
+        container.addEventListener('pointermove', onPreviewPointerMove);
+        ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(name => container.addEventListener(name, onPreviewPointerEnd));
     } else {
         if (sphereMesh.material.map.image !== procCanvas) {
             sphereMesh.material.map.dispose();
@@ -1489,6 +1766,7 @@ function initOrUpdate3D() {
         }
     }
     triggerResize();
+    if (toggleGuidesBtn.getAttribute('aria-pressed') === 'true') setOrientationGuides(true);
 }
 
 function render3D() {
@@ -1500,6 +1778,12 @@ function render3D() {
 }
 
 // Global Event Listeners
+toggleOrientationEditBtn.addEventListener('click', () => {
+    resetPointerInteractions();
+    toggleOrientationEditBtn.setAttribute('aria-pressed', String(toggleOrientationEditBtn.getAttribute('aria-pressed') !== 'true'));
+    syncOrientationEditMode();
+});
+toggleGuidesBtn.addEventListener('click', () => setOrientationGuides(toggleGuidesBtn.getAttribute('aria-pressed') !== 'true'));
 autoDetectBtn.addEventListener('click', () => runAutoDetect());
 function setDetectConfigOpen(open) {
     detectConfigPanel.classList.toggle('hidden', !open);
@@ -1509,8 +1793,8 @@ toggleDetectConfig.addEventListener('click', () => setDetectConfigOpen(detectCon
 document.addEventListener('pointerdown', e => {
     if (!detectConfigPanel.contains(e.target) && !toggleDetectConfig.contains(e.target)) setDetectConfigOpen(false);
 });
-inpSensitivity.addEventListener('input', () => { cancelAutoAlign(); valSensitivity.innerText = `${inpSensitivity.value}%`; });
-inpBias.addEventListener('input', () => { cancelAutoAlign(); valBias.innerText = inpBias.value > 66 ? 'High' : inpBias.value > 33 ? 'Med' : 'Low'; });
+inpSensitivity.addEventListener('input', () => { cancelAutoAlign(); syncParameterValue(inpSensitivity); });
+inpBias.addEventListener('input', () => { cancelAutoAlign(); syncParameterValue(inpBias); });
 preferCircleToggle.addEventListener('change', () => cancelAutoAlign());
 continuousAlignToggle.addEventListener('change', () => { cancelAutoAlign(); maybeStartAutomaticAlignment(); });
 window.addEventListener('pagehide', () => cancelAutoAlign());
@@ -1518,7 +1802,14 @@ document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (autoAlignJob && autoAlignJob.mode !== 'export') cancelAutoAlign(); }
     else maybeStartAutomaticAlignment();
 });
-fovSlider.addEventListener('input', updateParams);
+fovSlider.addEventListener('input', () => {
+    autoCoverageToggle.checked = false; syncCoverageControls(); saveCoverageSettings(); updateParams();
+});
+for (const control of [autoCoverageToggle, coverageMode, coverageFocalLength, coverageDiameter, coverageDistance]) {
+    control.addEventListener(control.type === 'number' ? 'input' : 'change', () => {
+        syncCoverageControls(); saveCoverageSettings(); updateParams();
+    });
+}
 pitchSlider.addEventListener('input', updateParams);
 yawSlider.addEventListener('input', updateParams);
 rollSlider.addEventListener('input', updateParams);
@@ -1528,6 +1819,12 @@ sourceCanvas.addEventListener('pointerdown', onSourcePointerDown);
 sourceCanvas.addEventListener('pointermove', onSourcePointerMove);
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(name => sourceCanvas.addEventListener(name, onSourcePointerEnd));
 sourceCanvas.addEventListener('keydown', onAlignmentKeyDown);
+threeContainer.addEventListener('wheel', e => {
+    if (!sourceMedia || isExportingFrames || toggleOrientationEditBtn.getAttribute('aria-pressed') !== 'true') return;
+    e.preventDefault();
+    const units = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? threeContainer.clientHeight : 1;
+    setParameterValue(fovSlider, Number(fovSlider.value) - e.deltaY * units * (e.altKey ? 0.002 : 0.02), true);
+}, { passive: false });
 threeContainer.addEventListener('keydown', e => {
     if (!sourceMedia) return;
     const step = e.shiftKey ? 10 : 2;
@@ -1621,8 +1918,9 @@ function resetPointerInteractions() {
     isDragging = isPanning = isUserInteracting = false;
     sourceNeedsRender = true;
     sourceIds.forEach(id => { if (sourceCanvas.hasPointerCapture(id)) sourceCanvas.releasePointerCapture(id); });
-    const id = viewerPointerId; viewerPointerId = null;
+    const id = viewerPointerId; viewerPointerId = null; viewerDragState = null;
     if (id !== null && threeContainer.hasPointerCapture(id)) threeContainer.releasePointerCapture(id);
+    syncOrientationEditMode();
 }
 function onSourcePointerDown(e) {
     if (!sourceMedia || isExportingFrames || splitPointerId !== null || e.button !== 0 || sourcePointers.size >= 2) return;

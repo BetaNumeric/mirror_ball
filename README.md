@@ -14,7 +14,7 @@ The application supports image and video uploads, providing an interactive 3D vi
 
 ## **Technical Details**
 
-Open `index.html` in a browser, keeping `auto-align.js` beside it. The application uses:
+Open `index.html` in a browser, keeping `auto-align.js` and `coverage.js` beside it. The application uses:
 
 * Three.js for WebGL processing and 3D rendering.  
 * JSZip and FileSaver.js for handling sequence exports.
@@ -31,6 +31,9 @@ Open **Controls** below the source image for a compact shortcut reference.
 * The active resize handle grows and gains an outline while dragging. A zoom percentage and **Reset** appear when zoomed; percentages are relative to the fitted source view. Reset restores zoom and pan without changing alignment.
 * Focus the source canvas with Tab: arrow keys move the circle, Shift+arrows resize it, +/− zoom, and 0 resets the view. Alt+arrows use larger alignment steps.
 * Drag the 360° preview with a mouse, pen, or finger. Its arrow keys look around; Shift uses larger turns, and 0 resets the viewing direction.
+* Click a parameter's number to type a decimal. Arrow keys adjust by 0.1, Shift+arrows by 1, and Alt+arrows by 0.01. Up/down arrows edit number fields; all four arrows work on sliders. Values support two decimal places. Enter commits an entry, blur clamps it to the allowed range, and Escape discards an unfinished entry. Double-click a slider **handle** to restore its default; double-clicking the track keeps its normal positioning behavior.
+* Hold Ctrl (or Command) while dragging the 360° preview, or enable **Edit image orientation** with the edit button beside the guide toggle. The image follows the drag while the viewing direction stays fixed. Hold Shift when starting a drag to roll around the viewing direction; Alt makes the gesture finer. In edit mode, scrolling changes Coverage and takes manual control from Auto coverage. The mode also works with touch and in fullscreen. Normal dragging continues to look around when editing is off.
+* Toggle **Orientation guides** with the grid button beside Fullscreen in the 360° preview. A stronger horizon and reference lines every 30° help align pitch, yaw, and roll. The grayscale guides stay fixed as image rotation changes, work in fullscreen, and appear only in the preview. They start off and retain your choice when changing media.
 * Collapse buttons work with Enter and Space. Escape closes detection settings or Focus Mode and returns keyboard focus.
 
 Each new image or video runs **Auto align** once its first frame is ready. Camera startup also gets one initial alignment. Detection compares several circle candidates, samples their boundaries at higher resolution, and uses robust fitting to reduce the influence of glare, clutter, and partial occlusion. Boundary coverage, fit error, and competing candidates determine whether to apply a result. Uncertain results preserve the current alignment.
@@ -51,6 +54,20 @@ Live mode attempts every decoded frame without a fixed rate cap. If capture, det
 
 The projection uses a radius proportional to `sin(angle / 2)`; the blind-spot fill stretches source pixels into missing coverage.
 
+### Automatic coverage
+
+Enable **Auto coverage** below Coverage to estimate the missing angular cone for a reflective mirror ball. The estimate updates when alignment changes the circle radius. Moving the Coverage slider turns automatic coverage off, giving immediate manual control. The automatic preference and one calibration profile are saved in this browser.
+
+Open **Calibration** to choose a source:
+
+* **Photo metadata** uses JPEG EXIF `FocalLengthIn35mmFilm` and the aligned circle radius. Physical focal length alone cannot establish the camera field of view. The reader inspects at most the first 1 MiB, declines digital zoom and inconsistent image dimensions, and keeps the current Coverage if usable metadata is absent.
+* **Lens calibration** accepts a 35mm-equivalent focal length for the actual capture format. This also works with videos and the camera. Both lens methods assume an uncropped rectilinear image and a ball near its optical axis; lens distortion, image cropping, and an inaccurate circle can affect the estimate.
+* **Ball & distance** uses the physical ball diameter and the distance from the camera's lens viewpoint to the ball center, in millimeters. Keep this geometry fixed when reusing the calibration. This method does not need file metadata.
+
+For ball radius `R` and camera-to-center distance `D > R`, the ideal reflected coverage is `360° − 2 asin(R/D)`. For a centered circular silhouette of pixel radius `r` and calibrated focal length `f` in pixels, its missing cone has angular diameter `2 atan(r/f)`. The focal-length method therefore follows changes in apparent ball size, while a fixed distance calibration assumes the same camera/ball setup. The Coverage correction retains the application's approximate radial projection.
+
+Calibration controls, parameter number fields, and viewport image editing stay locked during export. Old files cannot supply metadata to newly selected media, and the app never assumes a lens calibration from the previous photo. Turn off **Fill blind spot** to inspect the estimated missing region directly; filling stretches existing pixels rather than recovering missing information.
+
 Loading and decoding errors remain visible in Media. A load that makes no progress for 30 seconds reports an error so another file can be selected.
 
 ## **Development Checks**
@@ -63,6 +80,7 @@ node tests/auto-align.test.cjs --benchmark
 node tests/alignment-tracker.test.cjs
 node tests/tracking-performance.test.cjs
 node tests/tracking-performance.test.cjs --benchmark
+node tests/coverage.test.cjs
 ```
 
 The fixtures use analytic circle coordinates, fractional centres, cropping, glare, texture, occlusion, competing circles, and negative shapes/noise. Temporal tests cover jitter, motion, transient outliers, reacquisition, and backward seeking. Benchmarks report synthetic coordinate errors and timings; the tracking benchmark compares warm detector computation and excludes capture, transfer, and display. These are not real-photo accuracy or frame-rate guarantees.
@@ -77,6 +95,6 @@ Set `CHROME_PATH` if the browser is installed in a custom location. The checks u
 
 Set `MIRROR_BALL_TEST_VIDEO` to a local video path to also test importing, playback, and paused seeking with that file at its full source resolution.
 
-The suite checks GPU pixels against a sphere-reflection reference, detection and worker cancellation/failure recovery, native pointer and keyboard interaction, one-time automatic loading, 30 FPS moving-video and simulated-camera tracking, every-frame tracked exports, and opening the app directly from disk. It also reports measured continuous-worker round trips on its synthetic media.
+The suite checks GPU pixels against a sphere-reflection reference, detection and worker cancellation/failure recovery, native pointer and keyboard interaction, editable decimal parameters and handle resets, direct viewport image editing, one-time automatic loading, 30 FPS moving-video and simulated-camera tracking, every-frame tracked exports, orientation guides, automatic coverage/calibration, and opening the app directly from disk. It also reports measured continuous-worker round trips on its synthetic media. Coverage unit tests compare geometry with independently reflected tangent rays and exercise bounded, malformed, and both-endian EXIF reading.
 
 Sequence export accepts 1–120 FPS, supports cancellation, and stops if encoded frames exceed 256 MB. Use a lower output resolution or a shorter clip for larger exports.
